@@ -36,6 +36,8 @@ jobs:
         run: bash miya-setup.txt
 
       - name: Patch app
+        env:
+          RUNNUM: ${{ github.run_number }}
         run: |
           python3 - <<'PYEOF'
           p = 'miya-app/app/src/main/java/com/miya/app/MiyaService.java'
@@ -79,6 +81,13 @@ jobs:
                               }""")
           rep("""rec.startListening(i);""", """lastPartial = "";
                   rec.startListening(i);""")
+          rep("""public void onEndOfSpeech() { }""", """public void onEndOfSpeech() {
+                              js("setStatus('समझ रही हूँ…')");
+                              if (!lastPartial.isEmpty()) {
+                                  ui.removeCallbacks(fallback);
+                                  ui.postDelayed(fallback, 2500);
+                              }
+                          }""")
           rep("""i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");""", """i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
                   i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
                   i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500);
@@ -107,6 +116,14 @@ jobs:
           t = t.replace(b, b + """
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>""")
           open(m, 'w', encoding='utf-8').write(t)
+          import os
+          n = os.environ.get('RUNNUM', '?')
+          h = 'miya-app/app/src/main/assets/avatar.html'
+          u = open(h, encoding='utf-8').read()
+          a2 = 'window.setStatus = t => show(t);'
+          assert u.count(a2) == 1
+          u = u.replace(a2, a2 + '\nsetTimeout(() => { show("संस्करण ' + n + '"); hideT = setTimeout(() => bub.style.display = "none", 6000); }, 1500);')
+          open(h, 'w', encoding='utf-8').write(u)
           PYEOF
 
       - name: Keep same signing key

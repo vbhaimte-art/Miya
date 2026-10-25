@@ -35,6 +35,16 @@ jobs:
       - name: Create project
         run: bash miya-setup.txt
 
+      - name: Fix speech recognizer
+        run: |
+          sed -i 's/        if (rec == null) {/        if (rec != null) { rec.destroy(); rec = null; }\n        if (rec == null) {/' miya-app/app/src/main/java/com/miya/app/MiyaService.java
+
+      - name: Keep same signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: miya-debug-keystore
+
       - name: Build APK
         run: gradle -p miya-app assembleDebug --no-daemon --stacktrace
 

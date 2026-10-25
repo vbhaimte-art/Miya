@@ -51,11 +51,11 @@ jobs:
           rep("""public void onReadyForSpeech(Bundle p) { }""", """public void onReadyForSpeech(Bundle p) { js("setStatus('अब बोलिए…')"); }""")
           rep("""public void onPartialResults(Bundle b) { }""", """public void onPartialResults(Bundle b) {
                               ArrayList<String> pr = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                              if (pr != null && !pr.isEmpty()) {
+                              if (pr != null && !pr.isEmpty() && !pr.get(0).equals(lastPartial)) {
                                   lastPartial = pr.get(0);
                                   js("setStatus(" + JSONObject.quote("सुना: " + lastPartial) + ")");
                                   ui.removeCallbacks(fallback);
-                                  ui.postDelayed(fallback, 3500);
+                                  ui.postDelayed(fallback, 2500);
                               }
                           }""")
           rep("""boolean ttsReady = false, speaking = false, busy = false;""", """boolean ttsReady = false, speaking = false, busy = false;
@@ -88,6 +88,12 @@ jobs:
                                   ui.postDelayed(fallback, 2500);
                               }
                           }""")
+          rep("""void onTap() {""", """void onTap() {
+                  if (!lastPartial.isEmpty() && !busy) {
+                      ui.removeCallbacks(fallback);
+                      fallback.run();
+                      return;
+                  }""")
           rep("""i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");""", """i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
                   i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
                   i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500);

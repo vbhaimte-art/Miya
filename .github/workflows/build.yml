@@ -1,3 +1,4 @@
+
 name: Build Miya APK
 
 on:
@@ -55,7 +56,30 @@ jobs:
                   i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
                   i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500);
                   i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000);""")
+          rep("""import android.content.Intent;""", """import android.content.Intent;
+          import android.content.pm.ServiceInfo;""")
+          rep("""import android.os.Bundle;""", """import android.os.Build;
+          import android.os.Bundle;""")
+          rep("""startForeground(1, n);""", """if (Build.VERSION.SDK_INT >= 30) {
+                      try {
+                          startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+                      } catch (Exception e) {
+                          startForeground(1, n);
+                      }
+                  } else {
+                      startForeground(1, n);
+                  }""")
           open(p, 'w', encoding='utf-8').write(s)
+          m = 'miya-app/app/src/main/AndroidManifest.xml'
+          t = open(m, encoding='utf-8').read()
+          a = """<service android:name=".MiyaService" android:exported="false"/>"""
+          assert t.count(a) == 1
+          t = t.replace(a, """<service android:name=".MiyaService" android:exported="false" android:foregroundServiceType="microphone"/>""")
+          b = """<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>"""
+          assert t.count(b) == 1
+          t = t.replace(b, b + """
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>""")
+          open(m, 'w', encoding='utf-8').write(t)
           PYEOF
 
       - name: Keep same signing key

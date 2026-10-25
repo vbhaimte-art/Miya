@@ -1,4 +1,3 @@
-
 name: Build Miya APK
 
 on:
@@ -50,8 +49,36 @@ jobs:
           rep("""public void onReadyForSpeech(Bundle p) { }""", """public void onReadyForSpeech(Bundle p) { js("setStatus('अब बोलिए…')"); }""")
           rep("""public void onPartialResults(Bundle b) { }""", """public void onPartialResults(Bundle b) {
                               ArrayList<String> pr = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                              if (pr != null && !pr.isEmpty()) js("setStatus(" + JSONObject.quote("सुना: " + pr.get(0)) + ")");
+                              if (pr != null && !pr.isEmpty()) {
+                                  lastPartial = pr.get(0);
+                                  js("setStatus(" + JSONObject.quote("सुना: " + lastPartial) + ")");
+                                  ui.removeCallbacks(fallback);
+                                  ui.postDelayed(fallback, 3500);
+                              }
                           }""")
+          rep("""boolean ttsReady = false, speaking = false, busy = false;""", """boolean ttsReady = false, speaking = false, busy = false;
+              String lastPartial = "";
+              final Runnable fallback = () -> {
+                  String t = lastPartial;
+                  lastPartial = "";
+                  if (!t.isEmpty() && !busy) {
+                      if (rec != null) rec.cancel();
+                      ask(t);
+                  }
+              };""")
+          rep("""if (r != null && !r.isEmpty()) ask(r.get(0));""", """ui.removeCallbacks(fallback);
+                              lastPartial = "";
+                              if (r != null && !r.isEmpty() && !busy) ask(r.get(0));""")
+          rep("""public void onError(int code) {""", """public void onError(int code) {
+                              if (!lastPartial.isEmpty()) {
+                                  ui.removeCallbacks(fallback);
+                                  String t = lastPartial;
+                                  lastPartial = "";
+                                  if (!busy) ask(t);
+                                  return;
+                              }""")
+          rep("""rec.startListening(i);""", """lastPartial = "";
+                  rec.startListening(i);""")
           rep("""i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");""", """i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
                   i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
                   i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500);

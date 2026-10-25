@@ -35,9 +35,28 @@ jobs:
       - name: Create project
         run: bash miya-setup.txt
 
-      - name: Fix speech recognizer
+      - name: Patch app
         run: |
-          sed -i 's/        if (rec == null) {/        if (rec != null) { rec.destroy(); rec = null; }\n        if (rec == null) {/' miya-app/app/src/main/java/com/miya/app/MiyaService.java
+          python3 - <<'PYEOF'
+          p = 'miya-app/app/src/main/java/com/miya/app/MiyaService.java'
+          s = open(p, encoding='utf-8').read()
+          def rep(a, b):
+              global s
+              assert s.count(a) == 1, a
+              s = s.replace(a, b)
+          rep("""        if (rec == null) {""", """        if (rec != null) { rec.destroy(); rec = null; }
+                  if (rec == null) {""")
+          rep("""public void onReadyForSpeech(Bundle p) { }""", """public void onReadyForSpeech(Bundle p) { js("setStatus('अब बोलिए…')"); }""")
+          rep("""public void onPartialResults(Bundle b) { }""", """public void onPartialResults(Bundle b) {
+                              ArrayList<String> pr = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                              if (pr != null && !pr.isEmpty()) js("setStatus(" + JSONObject.quote("सुना: " + pr.get(0)) + ")");
+                          }""")
+          rep("""i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");""", """i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
+                  i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+                  i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500);
+                  i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000);""")
+          open(p, 'w', encoding='utf-8').write(s)
+          PYEOF
 
       - name: Keep same signing key
         uses: actions/cache@v4

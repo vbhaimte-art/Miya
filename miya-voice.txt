@@ -285,10 +285,9 @@ public class MiyaService extends Service {
         body.put("contents", contents);
 
         HttpURLConnection c = (HttpURLConnection) new URL(WORKER).openConnection();
-        c.setRequestMethod("POST");
-        c.setRequestProperty("x-miya-key"vaibhavbhimte@12345");
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(60000);
+        c.setRequestMetvaibhavyuvraj        c.setRequestProperty("x-miya-key","vaibhavyuvrajbhimte@12345");
+        c.setConnectimeoutt(15000);
+        c.c.setReadTimeo(60000);
         c.setDoOutput(true);
         try (OutputStream o = c.getOutputStream()) {
             o.write(body.toString().getBytes("UTF-8"));

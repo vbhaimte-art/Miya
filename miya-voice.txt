@@ -49,7 +49,7 @@ import java.util.concurrent.Executors;
 
 public class MiyaService extends Service {
     static final String WORKER = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
-    static final String PERSONA = "तुम \"मिया\" हो, मेरी निजी असिस्टेंट और दोस्त। मुझसे हिंदी में बात करो। "
+    static final String PERSONA = "तुम \"मिया\" हो, मेरी निजी असिस्टेंट और दोस्त। मुझसे जिस भाषा में बात करूँ (हिंदी या English), उसी भाषा में जवाब दो। "
             + "जवाब छोटे रखो, 1-3 वाक्य, क्योंकि तुम बोलकर जवाब देती हो। इमोजी और markdown मत इस्तेमाल करो। "
             + "अपनी सीधी और ईमानदार राय दो; मेरी हर बात से सहमत मत होना, ग़लत लगे तो सलीक़े से टोको।";
     static final int RATE = 16000;
@@ -280,7 +280,7 @@ public class MiyaService extends Service {
                 .put("mimeType", "audio/wav")
                 .put("data", Base64.encodeToString(wav(pcm), Base64.NO_WRAP)));
         JSONObject prompt = new JSONObject().put("text",
-                "यह मेरी आवाज़ है। जो मैंने कहा उसे समझकर हिंदी में छोटा जवाब दो।");
+                "यह मेरी आवाज़ है। मेरी बात हिंदी या English में हो सकती है। जिस भाषा में मैंने बोला, उसी में छोटा जवाब दो।");
         contents.put(new JSONObject().put("role", "user").put("parts", new JSONArray().put(audio).put(prompt)));
         body.put("contents", contents);
 
@@ -321,7 +321,11 @@ public class MiyaService extends Service {
             }
         }
         js("setText(" + JSONObject.quote(shown) + ")");
-        if (!err && ttsReady) tts.speak(shown, TextToSpeech.QUEUE_FLUSH, null, "miya");
+        if (!err && ttsReady) {
+            boolean hi = shown.matches("(?s).*[\\u0900-\\u097F].*");
+            tts.setLanguage(hi ? new Locale("hi", "IN") : Locale.US);
+            tts.speak(shown, TextToSpeech.QUEUE_FLUSH, null, "miya");
+        }
     }
 
     static JSONObject msgOf(String role, String text) {

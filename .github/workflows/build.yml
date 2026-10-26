@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/build.yml'
       - 'miya-setup.txt'
+      - 'miya-voice.txt'
       - 'model.vrm'
 
 permissions:
@@ -35,106 +36,17 @@ jobs:
       - name: Create project
         run: bash miya-setup.txt
 
-      - name: Patch app
-        env:
-          RUNNUM: ${{ github.run_number }}
+      - name: Install voice service
+        run: cp miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
+
+      - name: Patch manifest
         run: |
           python3 - <<'PYEOF'
-          p = 'miya-app/app/src/main/java/com/miya/app/MiyaService.java'
-          s = open(p, encoding='utf-8').read()
-          def rep(a, b):
-              global s
-              assert s.count(a) == 1, a
-              s = s.replace(a, b)
-          rep("""        if (rec == null) {""", """        if (rec != null) { rec.destroy(); rec = null; }
-                  if (rec == null) {""")
-          rep("""public void onReadyForSpeech(Bundle p) { }""", """public void onReadyForSpeech(Bundle p) { js("setStatus('अब बोलिए…')"); }""")
-          rep("""public void onPartialResults(Bundle b) { }""", """public void onPartialResults(Bundle b) {
-                              ArrayList<String> pr = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                              if (pr != null && !pr.isEmpty() && !pr.get(0).equals(lastPartial)) {
-                                  lastPartial = pr.get(0);
-                                  js("setStatus(" + JSONObject.quote("सुना: " + lastPartial) + ")");
-                                  ui.removeCallbacks(fallback);
-                                  ui.postDelayed(fallback, 2500);
-                              }
-                          }""")
-          rep("""boolean ttsReady = false, speaking = false, busy = false;""", """boolean ttsReady = false, speaking = false, busy = false;
-              String lastPartial = "";
-              final Runnable fallback = () -> {
-                  String t = lastPartial;
-                  lastPartial = "";
-                  if (!t.isEmpty() && !busy) {
-                      if (rec != null) rec.cancel();
-                      ask(t);
-                  }
-              };""")
-          rep("""if (r != null && !r.isEmpty()) ask(r.get(0));""", """ui.removeCallbacks(fallback);
-                              lastPartial = "";
-                              if (r != null && !r.isEmpty() && !busy) ask(r.get(0));""")
-          rep("""public void onError(int code) {""", """public void onError(int code) {
-                              if (!lastPartial.isEmpty()) {
-                                  ui.removeCallbacks(fallback);
-                                  String t = lastPartial;
-                                  lastPartial = "";
-                                  if (!busy) ask(t);
-                                  return;
-                              }""")
-          rep("""rec.startListening(i);""", """lastPartial = "";
-                  rec.startListening(i);""")
-          rep("""public void onEndOfSpeech() { }""", """public void onEndOfSpeech() {
-                              js("setStatus('समझ रही हूँ…')");
-                              if (!lastPartial.isEmpty()) {
-                                  ui.removeCallbacks(fallback);
-                                  ui.postDelayed(fallback, 2500);
-                              }
-                          }""")
-          rep("""void onTap() {""", """void onTap() {
-                  if (!lastPartial.isEmpty() && !busy) {
-                      ui.removeCallbacks(fallback);
-                      fallback.run();
-                      return;
-                  }""")
-          rep("""i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");""", """i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
-                  i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-                  i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2500);
-                  i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000);""")
-          rep("""import android.content.Intent;""", """import android.content.Intent;
-          import android.content.pm.ServiceInfo;""")
-          rep("""import android.os.Bundle;""", """import android.os.Build;
-          import android.os.Bundle;""")
-          rep("""startForeground(1, n);""", """if (Build.VERSION.SDK_INT >= 30) {
-                      try {
-                          startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
-                      } catch (Exception e) {
-                          startForeground(1, n);
-                      }
-                  } else {
-                      startForeground(1, n);
-                  }""")
-          open(p, 'w', encoding='utf-8').write(s)
-          m = 'miya-app/app/src/main/AndroidManifest.xml'
-          t = open(m, encoding='utf-8').read()
-          a = """<service android:name=".MiyaService" android:exported="false"/>"""
-          assert t.count(a) == 1
-          t = t.replace(a, """<service android:name=".MiyaService" android:exported="false" android:foregroundServiceType="microphone"/>""")
-          b = """<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>"""
-          assert t.count(b) == 1
-          t = t.replace(b, b + """
-              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>""")
-          open(m, 'w', encoding='utf-8').write(t)
-          import os
-          n = os.environ.get('RUNNUM', '1')
-          h = 'miya-app/app/src/main/assets/avatar.html'
-          u = open(h, encoding='utf-8').read()
-          a2 = 'window.setStatus = t => show(t);'
-          assert u.count(a2) == 1
-          u = u.replace(a2, a2 + '\nsetTimeout(() => { show("संस्करण ' + n + '"); hideT = setTimeout(() => bub.style.display = "none", 6000); }, 1500);')
-          open(h, 'w', encoding='utf-8').write(u)
-          g = 'miya-app/app/build.gradle'
-          w = open(g, encoding='utf-8').read()
-          assert w.count("versionCode 1") == 1 and w.count("versionName '1.0'") == 1
-          w = w.replace("versionCode 1", "versionCode " + n).replace("versionName '1.0'", "versionName '1.0." + n + "'")
-          open(g, 'w', encoding='utf-8').write(w)
+          p = 'miya-app/app/src/main/AndroidManifest.xml'
+          t = open(p, encoding='utf-8').read()
+          t = t.replace('<service android:name=".MiyaService" android:exported="false"/>', '<service android:name=".MiyaService" android:exported="false" android:foregroundServiceType="microphone"/>')
+          t = t.replace('<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>', '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>')
+          open(p, 'w', encoding='utf-8').write(t)
           PYEOF
 
       - name: Keep same signing key

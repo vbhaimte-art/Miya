@@ -127,8 +127,13 @@ loader.load(MODEL, gltf => {
   vrm.scene.updateMatrixWorld(true);
   const p = new THREE.Vector3();
   head.getWorldPosition(p);
-  camera.position.set(0, p.y - 0.02, 0.95);
-  camera.lookAt(0, p.y - 0.08, 0);
+  const box = new THREE.Box3().setFromObject(vrm.scene);
+const sz = box.getSize(new THREE.Vector3());
+const ctr = box.getCenter(new THREE.Vector3());
+const dist = (sz.y / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.35;
+camera.position.set(0, ctr.y, dist);
+camera.lookAt(0, ctr.y, 0);
+
   $("face").style.display = "none";
 }, undefined, () => { status.textContent = "3D मॉडल नहीं मिला, साधारण चेहरा दिख रहा है।"; });
 // ---- size badalna ----

@@ -466,6 +466,7 @@ startRoam();
     long rPause = 0;
 
     void startRoam() {
+   android.widget.Toast.makeText(this, "roam on", android.widget.Toast.LENGTH_LONG).show();
  android.widget.Toast.makeText(this, "roam on", android.widget.Toast.LENGTH_LONG).show();
         ui.postDelayed(roamTick, 4000);
     }

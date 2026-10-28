@@ -257,7 +257,7 @@ public class MiyaService extends Service {
         web.loadUrl("https://appassets.androidplatform.net/assets/avatar.html");
 
         lp = new WindowManager.LayoutParams(
-                (int) (230 * d), (int) (320 * d),
+                (int) (230 * d), (int) (480 * d),
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
@@ -265,7 +265,7 @@ public class MiyaService extends Service {
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.START;
         lp.x = 40;
-        lp.y = 400;
+        lp.y = 150;
 
         web.setOnTouchListener((v, e) -> {
             switch (e.getActionMasked()) {
@@ -536,12 +536,13 @@ loader.load("model.vrm", gltf => {
   if (la) la.rotation.z = 1.2;
   if (ra) ra.rotation.z = -1.2;
   vrm.scene.updateMatrixWorld(true);
-  const p = new THREE.Vector3();
-  head.getWorldPosition(p);
-  camera.position.set(0, p.y - 0.05, 1.3);
-  camera.lookAt(0, p.y - 0.1, 0);
-}, undefined, () => show("model.vrm नहीं मिला"));
-
+  const box = new THREE.Box3().setFromObject(vrm.scene);
+const sz = box.getSize(new THREE.Vector3());
+const ctr = box.getCenter(new THREE.Vector3());
+const dist = (sz.y / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.25;
+camera.position.set(0, ctr.y, dist);
+camera.lookAt(0, ctr.y, 0);
+    }, undefined, () => show("model.vrm नहीं मिला"));
 let nextBlink = 2, blinkT = -1;
 const clock = new THREE.Clock();
 function loop() {

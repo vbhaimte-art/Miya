@@ -217,6 +217,7 @@ public class MiyaService extends Service {
         if (web == null) {
             startFg();
             buildOverlay();
+startRoam();
             initTts();
         }
         return START_STICKY;
@@ -458,8 +459,49 @@ public class MiyaService extends Service {
         return sb.toString();
     }
 
+    // ---- Miya khud ghoomti hai ----
+    final java.util.Random roamRnd = new java.util.Random();
+    int rTx = 40, rTy = 150, rLastX = -1, rLastY = -1;
+    long rPause = 0;
+
+    void startRoam() {
+        ui.postDelayed(roamTick, 4000);
+    }
+
+    final Runnable roamTick = new Runnable() {
+        @Override
+        public void run() {
+            if (web == null || lp == null) return;
+            try {
+                long now = System.currentTimeMillis();
+                if (rLastX != -1 && (lp.x != rLastX || lp.y != rLastY)) {
+                    rPause = now + 6000;
+                }
+                if (now >= rPause && !speaking) {
+                    android.util.DisplayMetrics m = getResources().getDisplayMetrics();
+                    int dx = rTx - lp.x, dy = rTy - lp.y;
+                    if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+                        int maxX = Math.max(0, m.widthPixels - lp.width);
+                        int maxY = Math.max(0, m.heightPixels - lp.height - (int) (80 * m.density));
+                        rTx = roamRnd.nextInt(maxX + 1);
+                        rTy = roamRnd.nextInt(maxY + 1);
+                        rPause = now + 2000 + roamRnd.nextInt(4000);
+                    } else {
+                        int step = (int) (2 * m.density);
+                        lp.x += Math.max(-step, Math.min(step, dx));
+                        lp.y += Math.max(-step, Math.min(step, dy));
+                        wm.updateViewLayout(web, lp);
+                    }
+                }
+                rLastX = lp.x;
+                rLastY = lp.y;
+            } catch (Exception e) { }
+            ui.postDelayed(this, 30);
+        }
+    };
     @Override
     public void onDestroy() {
+    ui.removeCallbacksAndMessages(null);
         try { if (web != null) { wm.removeView(web); web.destroy(); web = null; } } catch (Exception e) { }
         if (rec != null) rec.destroy();
         if (tts != null) tts.shutdown();

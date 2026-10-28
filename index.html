@@ -131,7 +131,30 @@ loader.load(MODEL, gltf => {
   camera.lookAt(0, p.y - 0.08, 0);
   $("face").style.display = "none";
 }, undefined, () => { status.textContent = "3D मॉडल नहीं मिला, साधारण चेहरा दिख रहा है।"; });
+// ---- size badalna ----
+let sizeTimer = null;
+function resizeMiya(target) {
+  if (!vrm) return;
+  clearInterval(sizeTimer);
+  sizeTimer = setInterval(() => {
+    let s = vrm.scene.scale.x;
+    s += (target - s) * 0.1;
+    if (Math.abs(target - s) < 0.01) { s = target; clearInterval(sizeTimer); }
+    vrm.scene.scale.setScalar(s);
+    vrm.scene.updateMatrixWorld(true);
+    const hp = new THREE.Vector3();
+    head.getWorldPosition(hp);
+    camera.position.set(0, hp.y - 0.02, 0.95);
+    camera.lookAt(0, hp.y - 0.08, 0);
+  }, 16);
+}
 
+function checkSize(text) {
+  if (/chhoti ho ja|choti ho ja|छोटी हो जा/i.test(text)) resizeMiya(0.5);
+  else if (/badi ho ja|bdi ho ja|बड़ी हो जा/i.test(text)) resizeMiya(1.4);
+  else if (/normal ho ja|नॉर्मल हो जा|सामान्य हो जा/i.test(text)) resizeMiya(1);
+}
+  setTimeout(() => resizeMiya(0.5), 5000);
 let nextBlink = 2, blinkT = -1;
 const clock = new THREE.Clock();
 function frame() {

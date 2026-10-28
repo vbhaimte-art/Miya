@@ -154,7 +154,9 @@ function checkSize(text) {
   else if (/badi ho ja|bdi ho ja|बड़ी हो जा/i.test(text)) resizeMiya(1.4);
   else if (/normal ho ja|नॉर्मल हो जा|सामान्य हो जा/i.test(text)) resizeMiya(1);
 }
-  setTimeout(() => resizeMiya(0.5), 5000);
+const waitVrm = setInterval(() => {
+  if (vrm && head) { clearInterval(waitVrm); setTimeout(() => resizeMiya(0.5), 1500); }
+}, 300);
 let nextBlink = 2, blinkT = -1;
 const clock = new THREE.Clock();
 function frame() {

@@ -397,6 +397,7 @@ startRoam();
         js("setStatus('सोच रही हूँ…')");
         synchronized (history) {
             history.add(msg("user", text));
+            saveHistory();
         }
         net.execute(() -> {
             String reply;

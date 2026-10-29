@@ -469,7 +469,7 @@ String callGemini() throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(WORKER).openConnection();
         c.setRequestMethod("POST");
         c.setRequestProperty("Content-Type", "application/json");
-c.setRequestProperty("X-Miya-Token", TOKEN);
+c.setRequestProperty("X-Miya-key", TOKEN);
         c.setConnectTimeout(15000);
         c.setReadTimeout(40000);
         c.setDoOutput(true);

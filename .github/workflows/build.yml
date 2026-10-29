@@ -38,7 +38,11 @@ jobs:
 
       - name: Install voice service
         run: cp miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
-
+              - name: Insert token
+        env:
+          MIYA_TOKEN: ${{ secrets.MIYA_TOKEN }}
+        run: |
+          sed -i "s|static final String TOKEN = .*|static final String TOKEN = \"$MIYA_TOKEN\";|" miya-app/app/src/main/java/com/miya/app/MiyaService.java
       - name: Patch manifest
         run: |
           python3 - <<'PYEOF'

@@ -187,7 +187,7 @@ import java.util.concurrent.Executors;
 
 public class MiyaService extends Service {
     static final String WORKER = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
-       static final String TOKEN = "vaibhavyuvrajbhimte@12345;
+       static final String TOKEN = "Vaibhavyuvrajbhimte@12345;
     static final String PERSONA = "तुम \"मिया\" हो, मेरी निजी असिस्टेंट और दोस्त। मुझसे हिंदी में बात करो (मैं अंग्रेज़ी में बोलूँ तो अंग्रेज़ी में)। "
             + "जवाब छोटे रखो, 1-3 वाक्य, क्योंकि तुम बोलकर जवाब देती हो। इमोजी और markdown मत इस्तेमाल करो। "
             + "अपनी सीधी और ईमानदार राय दो; मेरी हर बात से सहमत मत होना, ग़लत लगे तो सलीक़े से टोको।";

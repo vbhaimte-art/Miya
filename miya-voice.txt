@@ -308,6 +308,7 @@ public class MiyaService extends Service {
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
         i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
+       i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         js("setStatus('सुन रही हूँ…')");
         listening = true;
         rec.startListening(i);
@@ -319,7 +320,9 @@ public class MiyaService extends Service {
         for (String w : ws) if (s.contains(w)) return true;
         return false;
     }
-
+        void quiet() {
+        js("(function(){var b=document.getElementById('bub');if(b)b.style.display='none';})()");
+    }
     // 0 = डांस कमांड नहीं, 1 = डांस चालू, 2 = डांस बंद
     int danceCmd(String raw) {
         String s = raw.toLowerCase(Locale.ROOT);
@@ -339,18 +342,20 @@ public class MiyaService extends Service {
                 r = "यह काम नहीं हो पाया।";
             }
             if (r != null) {
-                say(r);
+            boolean bad = r.contains("नहीं") || r.contains("?") || r.contains("कितने");
+if (bad) say(r); else quiet();
+            
                 return;
             }
             int c = danceCmd(a);
             if (c == 1) {
                 setDance(true);
-                say("ठीक है, नाचती हूँ!");
+                 quiet();
                 return;
             }
             if (c == 2) {
                 setDance(false);
-                say("ठीक है, रुक गई।");
+               quiet();
                 return;
             }
         }

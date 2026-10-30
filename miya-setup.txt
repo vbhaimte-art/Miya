@@ -571,10 +571,11 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 
 const bub = document.getElementById("bub");
-let hideT = null, speaking = false;
+let hideT = null, speaking = false, dancing = false;
 function show(t) { clearTimeout(hideT); bub.textContent = t; bub.style.display = "block"; }
 window.setStatus = t => show(t);
 window.setText = t => { show(t); hideT = setTimeout(() => bub.style.display = "none", 12000); };
+window.setDancing = b => { dancing = b; };
 window.setSpeaking = b => {
   speaking = b;
   if (!b) { clearTimeout(hideT); hideT = setTimeout(() => bub.style.display = "none", 4000); }
@@ -663,7 +664,7 @@ const moveBone = (name, x = 0, y = 0, z = 0) => {
     b.bone.rotation.z = b.z + z;
   }
 };
-if (speaking) {
+if (dancing) {
 moveBone("hips", 0, Math.sin(t * 5) * 0.16, Math.sin(t * 10) * 0.08);
 moveBone("spine", Math.sin(t * 10) * 0.05, 0, Math.sin(t * 5) * 0.08);
 moveBone("leftUpperArm", Math.sin(t * 8) * 0.35, 0, Math.sin(t * 6) * 0.22);

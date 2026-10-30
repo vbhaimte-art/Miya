@@ -55,6 +55,7 @@ cat > $P/app/src/main/AndroidManifest.xml <<'MIYA_EOF_4'
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <queries>
+         <uses-permission android:name="com.android.alarm.permission.SET_ALARM"/>
         <intent><action android:name="android.speech.RecognitionService"/></intent>
         <intent><action android:name="android.intent.action.TTS_SERVICE"/></intent>
     </queries>

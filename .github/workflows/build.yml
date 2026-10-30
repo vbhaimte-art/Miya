@@ -43,7 +43,7 @@ jobs:
         env:
           MIYA_TOKEN: ${{ secrets.MIYA_TOKEN }}
         run: |
-          sed -i "s|static final String TOKEN = .*|static final String TOKEN = \"$MIYA_TOKEN\";|" miya-app/app/src/main/java/com/miya/app/MiyaService.java
+          sed -i "s|static final String APP_KEY = .*|static final String APP_KEY = \"$MIYA_TOKEN\";|" miya-app/app/src/main/java/com/miya/app/MiyaService.java
 
       - name: Patch manifest
         run: |

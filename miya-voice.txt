@@ -480,10 +480,175 @@ String memCmd(String s) {
     }
     return null;
 }
+      // ---- Phone ke kaam: calendar, list, kharcha, diary, dawai, maps, search ----
+    List<String> readAll(String k) {
+        List<String> out = new ArrayList<>();
+        for (String t : store().getString(k, "").split("\n")) {
+            if (!t.trim().isEmpty()) out.add(t.trim());
+        }
+        return out;
+    }
+
+    void addTo(String k, String v) {
+        store().edit().putString(k, store().getString(k, "") + v.replace("\n", " ") + "\n").apply();
+    }
+
+    String numToDigits(String s) {
+        for (String[] p : NUMW) {
+            s = s.replaceAll(p[0] + "(?=\\s+(?:रुपये|रुपए|रूपये|रुपया))", p[1]);
+        }
+        return s;
+    }
+
+    String noteCmd(String s, String key, String name, boolean dated) {
+        if (has(s, "साफ", "खाली", "मिटा")) {
+            store().edit().remove(key).apply();
+            return name + " खाली कर दी।";
+        }
+        boolean write = has(s, "लिख", "जोड़", "डाल", "नोट कर");
+        boolean read = has(s, "सुना", "पढ़", "बता", "दिखा", "क्या है");
+        if (read && !write) {
+            List<String> all = readAll(key);
+            if (all.isEmpty()) return name + " में अभी कुछ नहीं है।";
+            return name + ": " + android.text.TextUtils.join(", ", all.subList(Math.max(0, all.size() - 8), all.size()));
+        }
+        String item = tokClean(s, "मिया", "miya", "योर", "यॉर", "yor", "लिस्ट", "नोट", "डायरी", "शॉपिंग",
+                "में", "जोड़ो", "जोड़", "डालो", "डाल", "लिखो", "लिख", "करो", "कर", "दो",
+                "मेरी", "मेरे", "मेरा", "का", "की", "के", "को");
+        if (item.isEmpty()) return "क्या लिखूँ? जैसे: दूध लिस्ट में जोड़ो";
+        String d = dated ? new java.text.SimpleDateFormat("dd/MM", Locale.US).format(new java.util.Date()) + " " : "";
+        addTo(key, d + item);
+        return "लिख लिया: " + item;
+    }
+
+    String kharchaCmd(String s) {
+        String ym = new java.text.SimpleDateFormat("yyyy-MM", Locale.US).format(new java.util.Date());
+        if (has(s, "कुल", "total", "हिसाब", "कितना", "कितने")) {
+            long sum = 0;
+            for (String l : readAll("kharcha")) {
+                String[] p = l.split("\\|");
+                if (p.length >= 2 && p[0].startsWith(ym)) {
+                    try { sum += Long.parseLong(p[1].trim()); } catch (Exception e) { }
+                }
+            }
+            return "इस महीने का कुल खर्च " + sum + " रुपये है।";
+        }
+        Matcher m = Pattern.compile("\\d+").matcher(s);
+        if (!m.find()) return "कितने रुपये? जैसे: चाय पर 20 रुपये खर्च";
+        String amt = m.group();
+        String title = tokClean(s.replaceAll("\\d+", " "), "मिया", "miya", "योर", "यॉर", "yor",
+                "रुपये", "रुपए", "रूपये", "रुपया", "खर्च", "खर्चा", "लिखो", "लिख", "जोड़ो", "डालो", "डाल",
+                "का", "के", "की", "पर", "में", "हुआ", "हुए", "किया", "दर्ज", "करो", "कर", "दो", "मैंने", "आज");
+        if (title.isEmpty()) title = "खर्च";
+        String day = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new java.util.Date());
+        addTo("kharcha", day + "|" + amt + "|" + title);
+        return amt + " रुपये का खर्च लिख लिया: " + title;
+    }
+
+    int pickHour(String s, int h) {
+        if (has(s, "शाम") || has(s, " pm")) {
+            if (h < 12) h += 12;
+        } else if (has(s, "दोपहर")) {
+            if (h >= 1 && h <= 6) h += 12;
+        } else if (has(s, "रात")) {
+            if (h == 12) h = 0;
+            else if (h >= 6 && h < 12) h += 12;
+        }
+        return h;
+    }
+
+    String medReply(String s) {
+        String n = normNum(s);
+        Matcher m = Pattern.compile("\\d{1,2}").matcher(n);
+        if (!m.find()) return "कितने बजे? जैसे: रोज़ रात 9 बजे दवाई याद दिलाओ";
+        int h = pickHour(s, Integer.parseInt(m.group()));
+        int mi = has(s, "साढ़े", "साढे") ? 30 : 0;
+        if (h > 23) return "समय समझ नहीं आया।";
+        ArrayList<Integer> days = new ArrayList<>();
+        for (int d = 1; d <= 7; d++) days.add(d);
+        startActivity(new Intent(AlarmClock.ACTION_SET_ALARM)
+                .putExtra(AlarmClock.EXTRA_HOUR, h)
+                .putExtra(AlarmClock.EXTRA_MINUTES, mi)
+                .putExtra(AlarmClock.EXTRA_MESSAGE, "दवाई")
+                .putIntegerArrayListExtra(AlarmClock.EXTRA_DAYS, days)
+                .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        return String.format(Locale.US, "ठीक है, रोज़ %02d:%02d पर दवाई का अलार्म लगा दिया।", h, mi);
+    }
+
+    String calReply(String s) {
+        String n = normNum(s);
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        if (has(s, "परसों")) c.add(java.util.Calendar.DAY_OF_YEAR, 2);
+        else if (has(s, "कल")) c.add(java.util.Calendar.DAY_OF_YEAR, 1);
+        Matcher m = Pattern.compile("\\d{1,2}").matcher(n);
+        if (!m.find()) return "कितने बजे? जैसे: कल 5 बजे मीटिंग कैलेंडर में डालो";
+        int h = pickHour(s, Integer.parseInt(m.group()));
+        if (h > 23) return "समय समझ नहीं आया।";
+        c.set(java.util.Calendar.HOUR_OF_DAY, h);
+        c.set(java.util.Calendar.MINUTE, has(s, "साढ़े", "साढे") ? 30 : 0);
+        c.set(java.util.Calendar.SECOND, 0);
+        String title = tokClean(s.replaceAll("\\d+", " "), "मिया", "miya", "योर", "यॉर", "yor",
+                "कैलेंडर", "में", "डालो", "डाल", "दो", "जोड़ो", "जोड़", "बना", "बनाओ", "लगा", "लगाओ",
+                "कल", "परसों", "आज", "बजे", "सुबह", "शाम", "रात", "दोपहर", "को", "पर", "का", "की", "के",
+                "एक", "दो", "तीन", "चार", "पाँच", "पांच", "छह", "सात", "आठ", "नौ", "दस");
+        if (title.isEmpty()) title = "इवेंट";
+        startActivity(new Intent(Intent.ACTION_INSERT)
+                .setData(android.provider.CalendarContract.Events.CONTENT_URI)
+                .putExtra(android.provider.CalendarContract.Events.TITLE, title)
+                .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, c.getTimeInMillis())
+                .putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, c.getTimeInMillis() + 3600000L)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        return "कैलेंडर खोल दिया है, वहाँ सेव दबा दीजिए।";
+    }
+
+    String mapsReply(String s) {
+        String place = tokClean(s, "मिया", "miya", "योर", "यॉर", "yor", "का", "की", "के", "को", "से", "तक",
+                "रास्ता", "दिखाओ", "बताओ", "नेविगेट", "navigate", "directions", "करो", "कर", "चलो", "चालू", "लिए");
+        if (place.isEmpty()) return "कहाँ जाना है?";
+        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("google.navigation:q=" + android.net.Uri.encode(place)))
+                .setPackage("com.google.android.apps.maps")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        return place + " का रास्ता खोल रही हूँ।";
+    }
+
+    String searchReply(String s) {
+        boolean yt = has(s, "यूट्यूब", "youtube");
+        String q = tokClean(s, "मिया", "miya", "योर", "यॉर", "yor", "यूट्यूब", "youtube", "गूगल", "google",
+                "पर", "में", "खोजो", "खोज", "सर्च", "search", "करो", "कर", "दो", "ढूँढो", "ढूंढो", "ढूँढ", "ढूंढ", "के", "लिए");
+        if (q.isEmpty()) return "क्या खोजूँ?";
+        String url = (yt ? "https://www.youtube.com/results?search_query=" : "https://www.google.com/search?q=")
+                + android.net.Uri.encode(q);
+        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        return q + " खोज रही हूँ।";
+    }
+
+    String extra(String s) {
+        try {
+            s = numToDigits(s);
+            boolean digit = Pattern.compile("\\d").matcher(s).find();
+            boolean money = has(s, "रुपये", "रुपए", "रूपये", "रुपया", "rupaye", "rupees");
+            boolean kharch = has(s, "खर्च", "खर्चा", "kharcha");
+            if (has(s, "दवाई", "दवा", "गोली", "medicine") && has(s, "याद", "रिमाइंडर", "अलार्म", "reminder")) return medReply(s);
+            if (has(s, "कैलेंडर", "calendar", "मीटिंग", "meeting") && has(s, "डाल", "जोड़", "add", "बना", "लगा") && !has(s, "खोल", "open")) return calReply(s);
+            if (has(s, "रास्ता", "नेविगेट", "navigate", "directions")) return mapsReply(s);
+            if (has(s, "खोज", "सर्च", "search", "ढूँढ", "ढूंढ") && has(s, "यूट्यूब", "youtube", "गूगल", "google")) return searchReply(s);
+            if (has(s, "डायरी", "diary")) return noteCmd(s, "diary", "डायरी", true);
+            if (kharch && has(s, "कुल", "total", "हिसाब", "कितना", "कितने")) return kharchaCmd(s);
+            if ((money || kharch) && digit && !has(s, "डॉलर", "dollar", "क्या")) return kharchaCmd(s);
+            if (has(s, "लिस्ट") && !has(s, "प्लेलिस्ट")) return noteCmd(s, "list", "लिस्ट", false);
+            if (has(s, "नोट") && !has(s, "नोटिफ")) return noteCmd(s, "notes", "नोट", true);
+        } catch (Exception e) {
+            return "यह काम नहीं हो पाया।";
+        }
+        return null;
+    }
     void handle(List<String> alts) {
         for (String a : alts) {
     String mm = memCmd(a.toLowerCase(Locale.ROOT));
 if (mm != null) { say(mm); return; }
+    String ex = extra(a.toLowerCase(Locale.ROOT));
+if (ex != null) { say(ex); return; }
             String r;
             try {
                 r = device(a.toLowerCase(Locale.ROOT));

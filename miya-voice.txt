@@ -89,7 +89,9 @@ public class MiyaService extends Service {
     final Handler ui = new Handler(Looper.getMainLooper());
     SpeechRecognizer rec;
     TextToSpeech tts;
-    boolean ttsReady = false, speaking = false, busy = false, listening = false, dancing = false, torchOn = false;
+    boolean ttsReady = false, speaking = false, busy = 
+false, listening = false, dancing = false, torchOn = false;
+    boolean preferOffline = true;
     final List<JSONObject> history = new ArrayList<>();
     final ExecutorService net = Executors.newSingleThreadExecutor();
     float downX, downY;
@@ -277,7 +279,14 @@ public class MiyaService extends Service {
 
                 public void onError(int code) {
                     listening = false;
-                    if (code == 8 && rec != null) rec.cancel();
+                 if ((code == 11 || code == 12 || code == 13) && preferOffline) {
+    preferOffline = false;
+    try { rec.destroy(); } catch (Exception e) { }
+    rec = null;
+    ui.postDelayed(() -> listen(), 300);
+    return;
+}  
+           if (code == 8 && rec != null) rec.cancel();
                     String why;
                     switch (code) {
                         case 1: why = "नेटवर्क टाइमआउट"; break;
@@ -288,6 +297,9 @@ public class MiyaService extends Service {
                         case 7: why = "समझ नहीं आया"; break;
                         case 8: why = "पहचान व्यस्त है"; break;
                         case 9: why = "माइक की अनुमति नहीं है"; break;
+                       case 10: why = "बहुत ज़्यादा अनुरोध"; break;
+case 11: why = "आवाज़ सेवा बंद हो गई"; break;
+case 12: case 13: why = "भाषा उपलब्ध नहीं"; break; 
                         default: why = "अज्ञात"; break;
                     }
                     js("setStatus(" + JSONObject.quote("त्रुटि " + code + ": " + why + ", फिर दबाइए") + ")");
@@ -308,10 +320,10 @@ public class MiyaService extends Service {
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
         i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
-       i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+       i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,preferOffline );
         js("setStatus('सुन रही हूँ…')");
         listening = true;
-        rec.startListening(i);
+rec.startListening(i);
     }
 
     // ---------- कमांड पहचान ----------

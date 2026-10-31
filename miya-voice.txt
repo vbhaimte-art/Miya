@@ -92,6 +92,21 @@ public class MiyaService extends Service {
     boolean ttsReady = false, speaking = false, busy = 
 false, listening = false, dancing = false, torchOn = false;
     boolean preferOffline = true;
+   boolean wakeOn = true, passive = false, awaitCmd = false;
+final Runnable wakeTick = new Runnable() {
+    public void run() {
+        if (web == null) return;
+        if (wakeOn && !listening && !speaking && !busy
+                && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                        == PackageManager.PERMISSION_GRANTED
+                && SpeechRecognizer.isRecognitionAvailable(MiyaService.this)) {
+            passive = !awaitCmd;
+            awaitCmd = false;
+            listen();
+        }
+        ui.postDelayed(this, 700);
+    }
+};
     final List<JSONObject> history = new ArrayList<>();
     final ExecutorService net = Executors.newSingleThreadExecutor();
     float downX, downY;
@@ -114,6 +129,7 @@ false, listening = false, dancing = false, torchOn = false;
             startFg();
             buildOverlay();
             initTts();
+         ui.postDelayed(wakeTick, 3000);
         }
         return START_STICKY;
     }
@@ -252,7 +268,13 @@ false, listening = false, dancing = false, torchOn = false;
             js("setSpeaking(false)");
             return;
         }
-        if (busy || listening) return;
+        if (busy) return;
+if (listening) {
+    if (!passive) return;
+    try { rec.cancel(); } catch (Exception e) { }
+    listening = false;
+}
+passive = false;
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             js("setStatus('माइक की अनुमति नहीं है। ऐप खोलकर अनुमति दें')");
@@ -286,6 +308,13 @@ false, listening = false, dancing = false, torchOn = false;
     ui.postDelayed(() -> listen(), 300);
     return;
 }  
+    if (passive) {
+    if (code == 8 || code == 5 || code == 11) {
+        try { rec.destroy(); } catch (Exception e) { }
+        rec = null;
+    }
+    return;
+}
            if (code == 8 && rec != null) rec.cancel();
                     String why;
                     switch (code) {
@@ -308,6 +337,7 @@ case 12: case 13: why = "भाषा उपलब्ध नहीं"; break;
                 public void onResults(Bundle b) {
                     listening = false;
                     ArrayList<String> r = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                 if (passive) { onWake(r); return; }
                     if (r == null || r.isEmpty()) {
                         js("setStatus('समझ नहीं आया, फिर दबाइए')");
                         return;
@@ -321,7 +351,7 @@ case 12: case 13: why = "भाषा उपलब्ध नहीं"; break;
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
         i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
        i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,preferOffline );
-        js("setStatus('सुन रही हूँ…')");
+        if (!passive) js("setStatus('सुन रही हूँ…')");
         listening = true;
 rec.startListening(i);
     }
@@ -350,7 +380,29 @@ int modelCmd(String raw) {
     if (has(s, "वापस", "पहले वाली", "पुरानी", "मिया बन", "miya ban", "wapas")) return 2;
     return 0;
 }
+boolean hasWake(String s) {
+    return has(s, "मिया", "मीया", "miya", "योर", "यॉर", "यौर", "yor");
+}
 
+void onWake(List<String> alts) {
+    if (alts == null || alts.isEmpty()) return;
+    boolean hit = false;
+    for (String a : alts) {
+        if (hasWake(a.toLowerCase(Locale.ROOT))) { hit = true; break; }
+    }
+    if (!hit) return;
+    String rest = alts.get(0).toLowerCase(Locale.ROOT)
+            .replaceAll("मिया|मीया|miya|योर|यॉर|यौर|yor", " ")
+            .replaceAll("[\\s,।.!?]+", " ").trim();
+    if (rest.length() < 2) {
+        awaitCmd = true;
+        js("setStatus('जी?')");
+        ui.removeCallbacks(wakeTick);
+        ui.postDelayed(wakeTick, 300);
+    } else {
+        handle(alts);
+    }
+}
     void handle(List<String> alts) {
         for (String a : alts) {
             String r;

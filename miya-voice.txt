@@ -344,6 +344,12 @@ rec.startListening(i);
         if (danceW) return 1;
         return 0;
     }
+int modelCmd(String raw) {
+    String s = raw.toLowerCase(Locale.ROOT);
+    if (has(s, "योर", "यॉर", "यौर", "yor")) return 1;
+    if (has(s, "वापस", "पहले वाली", "पुरानी", "मिया बन", "miya ban", "wapas")) return 2;
+    return 0;
+}
 
     void handle(List<String> alts) {
         for (String a : alts) {
@@ -359,7 +365,13 @@ if (bad) say(r); else quiet();
             
                 return;
             }
-            int c = danceCmd(a);
+           int mc = modelCmd(a);
+if (mc != 0) {
+    js("setModel('" + (mc == 1 ? "yor" : "model") + "')");
+    say(mc == 1 ? "ठीक है, अब मैं योर हूँ।" : "ठीक है, मैं वापस मिया बन गई।");
+    return;
+}
+          int c = danceCmd(a);
             if (c == 1) {
                 setDance(true);
                  quiet();

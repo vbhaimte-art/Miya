@@ -690,4 +690,14 @@ loop();
 MIYA_EOF_7
 if [ -f model.vrm ]; then cp model.vrm $P/app/src/main/assets/model.vrm; else echo "model.vrm repo me nahi mila"; exit 1; fi
 if [ -f yor.vrm ]; then cp yor.vrm $P/app/src/main/assets/yor.vrm; fi
+python3 - <<'PY'
+p = 'miya-app/app/src/main/assets/avatar.html'
+s = open(p, encoding='utf-8').read()
+a = 'loader.load("model.vrm", gltf => {'
+b = '}, undefined, () => show("model.vrm नहीं मिला"));'
+assert a in s and b in s
+s = s.replace(a, 'function loadModel(file) {\nloader.load(file, gltf => {\nif (vrm) { scene.remove(vrm.scene); try { VRMUtils.deepDispose(vrm.scene); } catch (e) {} vrm = null; head = null; danceBones = {}; }')
+s = s.replace(b, '}, undefined, () => show(file + " नहीं मिला"));\n}\nloadModel("model.vrm");\nwindow.setModel = n => loadModel(n + ".vrm");')
+open(p, 'w', encoding='utf-8').write(s)
+PY
 

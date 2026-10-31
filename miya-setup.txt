@@ -689,3 +689,5 @@ loop();
 </body></html>
 MIYA_EOF_7
 if [ -f model.vrm ]; then cp model.vrm $P/app/src/main/assets/model.vrm; else echo "model.vrm repo me nahi mila"; exit 1; fi
+if [ -f yor.vrm ]; then cp yor.vrm $P/app/src/main/assets/yor.vrm; fi
+

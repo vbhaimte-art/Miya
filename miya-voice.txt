@@ -129,6 +129,7 @@ final Runnable wakeTick = new Runnable() {
             startFg();
             buildOverlay();
             initTts();
+            loadHist();
          ui.postDelayed(wakeTick, 3000);
         }
         return START_STICKY;
@@ -403,8 +404,86 @@ void onWake(List<String> alts) {
         handle(alts);
     }
 }
+  // ---- Miya aur Yor ki alag yaadasht ----
+String curChar = "miya";
+static final String YOR_STYLE = ""; // yahan Yor ka andaaz likh sakte ho
+
+android.content.SharedPreferences store() {
+    return getSharedPreferences("miya_store", MODE_PRIVATE);
+}
+
+String personaNow() {
+    String base = curChar.equals("yor")
+            ? PERSONA.replace("\"मिया\"", "\"योर\"") + YOR_STYLE : PERSONA;
+    String mem = store().getString("mem_" + curChar, "");
+    if (mem.isEmpty()) return base;
+    return base + "\nमेरे बारे में तुम्हें ये बातें याद हैं, इनका ध्यान रखो:\n" + mem;
+}
+
+void saveHist() {
+    try {
+        JSONArray a = new JSONArray();
+        synchronized (history) {
+            int from = Math.max(0, history.size() - 40);
+            for (int i = from; i < history.size(); i++) a.put(history.get(i));
+        }
+        store().edit().putString("hist_" + curChar, a.toString()).apply();
+    } catch (Exception e) { }
+}
+
+void loadHist() {
+    synchronized (history) {
+        history.clear();
+        try {
+            String s = store().getString("hist_" + curChar, null);
+            if (s != null) {
+                JSONArray a = new JSONArray(s);
+                for (int i = 0; i < a.length(); i++) history.add(a.getJSONObject(i));
+            }
+        } catch (Exception e) { }
+    }
+}
+
+void switchChar(String c) {
+    if (c.equals(curChar)) return;
+    saveHist();
+    curChar = c;
+    loadHist();
+}
+
+String tokClean(String s, String... stop) {
+    List<String> st = Arrays.asList(stop);
+    StringBuilder sb = new StringBuilder();
+    for (String t : s.split("[\\s,।.!?]+")) {
+        if (!t.isEmpty() && !st.contains(t)) sb.append(t).append(' ');
+    }
+    return sb.toString().trim();
+}
+
+String memCmd(String s) {
+    String key = "mem_" + curChar;
+    if (has(s, "सब भूल", "याद मिटा", "याद साफ")) {
+        store().edit().remove(key).remove("hist_" + curChar).apply();
+        synchronized (history) { history.clear(); }
+        return "ठीक है, सब भूल गई।";
+    }
+    if (has(s, "क्या याद है", "क्या याद रखा", "मेरे बारे में क्या")) {
+        String m = store().getString(key, "").trim();
+        return m.isEmpty() ? "अभी मुझे कुछ याद नहीं है।" : "मुझे ये याद है: " + m.replace("\n", ", ");
+    }
+    if (has(s, "याद रख", "yaad rakh", "remember")) {
+        String fact = tokClean(s, "मिया", "miya", "योर", "यॉर", "yor", "ये", "यह", "बात",
+                "याद", "रखना", "रखो", "रख", "लो", "करो", "कर", "remember", "this");
+        if (fact.length() < 2) return "क्या याद रखूँ?";
+        store().edit().putString(key, store().getString(key, "") + fact.replace("\n", " ") + "\n").apply();
+        return "ठीक है, याद रख लिया।";
+    }
+    return null;
+}
     void handle(List<String> alts) {
         for (String a : alts) {
+    String mm = memCmd(a.toLowerCase(Locale.ROOT));
+if (mm != null) { say(mm); return; }
             String r;
             try {
                 r = device(a.toLowerCase(Locale.ROOT));
@@ -420,6 +499,7 @@ if (bad) say(r); else quiet();
            int mc = modelCmd(a);
 if (mc != 0) {
     js("setModel('" + (mc == 1 ? "yor" : "model") + "')");
+  switchChar(mc == 1 ? "yor" : "miya");
     say(mc == 1 ? "ठीक है, अब मैं योर हूँ।" : "ठीक है, मैं वापस मिया बन गई।");
     return;
 }
@@ -695,7 +775,7 @@ if (mc != 0) {
     String callGemini(String userText) throws Exception {
         JSONObject body = new JSONObject();
         body.put("systemInstruction", new JSONObject().put("parts",
-                new JSONArray().put(new JSONObject().put("text", PERSONA))));
+                new JSONArray().put(new JSONObject().put("text", personaNow()))));
         JSONArray contents = new JSONArray();
         synchronized (history) {
             int from = Math.max(0, history.size() - 20);
@@ -741,6 +821,7 @@ if (mc != 0) {
                 history.add(msgOf("user", userText));
                 history.add(msgOf("model", r));
                 while (history.size() > 40) history.remove(0);
+    saveHist();
             }
         }
         js("setText(" + JSONObject.quote(shown) + ")");

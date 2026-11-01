@@ -70,12 +70,14 @@ const PERSONA = `तुम "${NAME}" हो, मेरी निजी असि
 अपनी सीधी और ईमानदार राय दो। मेरी हर बात से सहमत मत होना; ग़लत लगे तो सलीक़े से टोको और कारण बताओ।
 ज़रूरत हो तो एक सवाल पूछो, उससे ज़्यादा नहीं।`;
 // ====================================
+ const THRON_MODEL = "thron.vrm";
+const THRON_PERSONA = `तुम "थ्रोन" हो, सुरक्षा और बैटरी संभालने वाला गार्ड। मुझे हमेशा "बॉस" बोलो। शांत और रक्षक अंदाज़ में हिंदी में बात करो। जवाब 1-2 वाक्य के रखो, इमोजी और markdown मत इस्तेमाल करो।`; 
 
 const $ = id => document.getElementById(id);
 const log = $("log"), txt = $("txt"), status = $("status"), mic = $("mic");
 let speaking = false;
+let who = "miya", busy = false;
 let history = [];
-try { history = JSON.parse(localStorage.getItem("hist") || "[]"); } catch (e) {}
 
 function add(role, text) {
   const d = document.createElement("div");
@@ -84,12 +86,37 @@ function add(role, text) {
   log.appendChild(d);
   log.scrollTop = log.scrollHeight;
 }
-history.forEach(h => add(h.role, h.parts[0].text));
-if (!history.length) add("model", "नमस्ते! मैं " + NAME + " हूँ। माइक दबाकर बोलिए या लिखिए।");
+function histKey() { return who === "thron" ? "hist_thron" : "hist"; }
+function loadHist() {
+  try {
+    const a = JSON.parse(localStorage.getItem(histKey()) || "[]");
+    return Array.isArray(a) ? a.filter(h => h && (h.role === "user" || h.role === "model") && h.parts && typeof h.parts[0]?.text === "string") : [];
+  } catch (e) { return []; }
+}
+function greetLine() { return who === "thron" ? "जी बॉस, थ्रोन हाज़िर है।" : "नमस्ते! मैं " + NAME + " हूँ। माइक दबाकर बोलिए या लिखिए।"; }
+function reloadHist() {
+  history = loadHist();
+  log.innerHTML = "";
+  history.forEach(h => add(h.role, h.parts[0].text));
+  if (!history.length) add("model", greetLine());
+}
 function save() {
   history = history.slice(-20);
-  try { localStorage.setItem("hist", JSON.stringify(history)); } catch (e) {}
+  try { localStorage.setItem(histKey(), JSON.stringify(history)); } catch (e) {}
 }
+function getFacts() {
+  try { const a = JSON.parse(localStorage.getItem("facts_" + who) || "[]"); return Array.isArray(a) ? a.filter(x => typeof x === "string").slice(-30) : []; } catch (e) { return []; }
+}
+function addFact(f) {
+  const a = getFacts(); a.push(f.slice(0, 200));
+  try { localStorage.setItem("facts_" + who, JSON.stringify(a.slice(-30))); } catch (e) {}
+}
+function persona() {
+  const base = who === "thron" ? THRON_PERSONA : PERSONA;
+  const f = getFacts();
+  return f.length ? base + "\nयाद रखने वाली बातें:\n- " + f.join("\n- ") : base;
+}
+reloadHist();
 
 // ---- 3D अवतार ----
 let vrm = null, head = null;
@@ -114,48 +141,73 @@ resize();
 
 const loader = new GLTFLoader();
 loader.register(p => new VRMLoaderPlugin(p));
-loader.load(MODEL, gltf => {
-  vrm = gltf.userData.vrm;
-  try { VRMUtils.removeUnnecessaryVertices(gltf.scene); } catch (e) {}
-  VRMUtils.rotateVRM0(vrm);
-  scene.add(vrm.scene);
-  const h = vrm.humanoid;
-  head = h.getNormalizedBoneNode("head");
-  const la = h.getNormalizedBoneNode("leftUpperArm"), ra = h.getNormalizedBoneNode("rightUpperArm");
-  if (la) la.rotation.z = -1.2;
-  if (ra) ra.rotation.z = 1.2;
-  vrm.scene.updateMatrixWorld(true);
-  const p = new THREE.Vector3();
-  head.getWorldPosition(p);
-  const box = new THREE.Box3().setFromObject(vrm.scene);
-const sz = box.getSize(new THREE.Vector3());
-const ctr = box.getCenter(new THREE.Vector3());
-const dist = (sz.y / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.35;
-camera.position.set(0, ctr.y, dist);
-camera.lookAt(0, ctr.y, 0);
-
-  $("face").style.display = "none";
-}, undefined, () => { status.textContent = "3D मॉडल नहीं मिला, साधारण चेहरा दिख रहा है।"; });
-// ---- size badalna ----
 let sizeTimer = null;
+const sizePref = { miya: 0.5, thron: 1, yor: 1 };
+function unloadChar() {
+  if (!vrm) return;
+  clearInterval(sizeTimer);
+  scene.remove(vrm.scene);
+  try { VRMUtils.deepDispose(vrm.scene); } catch (e) {}
+  vrm = null; head = null;
+}
+
+function loadChar(file, onDone) {
+  unloadChar();
+  loader.load(file, gltf => {
+    vrm = gltf.userData.vrm;
+    try { VRMUtils.removeUnnecessaryVertices(gltf.scene); } catch (e) {}
+    VRMUtils.rotateVRM0(vrm);
+    scene.add(vrm.scene);
+    const h = vrm.humanoid;
+    head = h.getNormalizedBoneNode("head");
+    const la = h.getNormalizedBoneNode("leftUpperArm"), ra = h.getNormalizedBoneNode("rightUpperArm");
+    if (la) la.rotation.z = -1.2;
+    if (ra) ra.rotation.z = 1.2;
+    vrm.scene.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(vrm.scene);
+    const sz = box.getSize(new THREE.Vector3());
+    const ctr = box.getCenter(new THREE.Vector3());
+    const dist = (sz.y / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.35;
+    camera.position.set(0, ctr.y, dist);
+    camera.lookAt(0, ctr.y, 0);
+    $("face").style.display = "none";
+        vrm.scene.scale.setScalar(sizePref[who] || 1);
+    if (onDone) onDone();
+  }, undefined, () => {
+    busy = false;
+    canvas.style.opacity = 1;
+    if (who === "thron") {
+      status.textContent = "थ्रोन का मॉडल नहीं मिला (thron.vrm जोड़ें)।";
+      who = "miya";
+      reloadHist();
+          loadChar(MODEL);
+    } else {
+      status.textContent = "3D मॉडल नहीं मिला, साधारण चेहरा दिख रहा है।";
+    }
+  });
+}
+loadChar(MODEL);
 function resizeMiya(target) {
   if (!vrm) return;
+    sizePref[who] = target;
   clearInterval(sizeTimer);
   sizeTimer = setInterval(() => {
     let s = vrm.scene.scale.x;
     s += (target - s) * 0.1;
     if (Math.abs(target - s) < 0.01) { s = target; clearInterval(sizeTimer); }
     vrm.scene.scale.setScalar(s);
-    vrm.scene.updateMatrixWorld(true)vh  
+        vrm.scene.updateMatrixWorld(true);
   }, 16);
 }
-
-function checkSize(text) {
-  if (/chhoti ho ja|choti ho ja|छोटी हो जा/i.test(text)) resizeMiya(0.5);
-  else if (/badi ho ja|bdi ho ja|बड़ी हो जा/i.test(text)) resizeMiya(1.4);
-  else if (/normal ho ja|नॉर्मल हो जा|सामान्य हो जा/i.test(text)) resizeMiya(1);
+  function checkSize(text) {
+  const t = text.toLowerCase();
+  const J = "(?:ho ?ja|हो ?जा)";
+  if (new RegExp("(?:chh?ot[aie]|छोट[ाीे])\\s*" + J).test(t)) { resizeMiya(0.5); return true; }
+  if (new RegExp("(?:ba?d[aie]|बड.?[ाीे])\\s*" + J).test(t)) { resizeMiya(1.4); return true; }
+  if (new RegExp("(?:normal|नॉर्मल|सामान्य)\\s*" + J).test(t)) { resizeMiya(1); return true; }
+  return false;
 }
-const waitVrm = setInterval(() => {
+  const waitVrm = setInterval(() => {
   if (vrm && head) { clearInterval(waitVrm); setTimeout(() => resizeMiya(0.5), 1500); }
 }, 300);
 let nextBlink = 2, blinkT = -1;
@@ -193,18 +245,195 @@ function speak(text) {
   u.onend = u.onerror = () => { speaking = false; document.body.classList.remove("talk"); };
   speechSynthesis.speak(u);
 }
+// ---- Thron / Miya swap + commands ----
+function swapTo(target, greet) {
+  if (busy || who === target) { if (greet) speak(greet); return; }
+  busy = true;
+  speechSynthesis.cancel();
+  canvas.style.transition = "opacity .4s";
+  canvas.style.opacity = 0;
+  setTimeout(() => {
+    who = target;
+        reloadHist();
+    loadChar(target === "thron" ? THRON_MODEL : MODEL, () => {
+      canvas.style.opacity = 1;
+      busy = false;
+      if (greet) { add("model", greet); speak(greet); }
+    });
+  }, 400);
+}
 
+async function batteryReport() {
+  let m;
+  if (!navigator.getBattery) m = "बॉस, इस ऐप में बैटरी की जानकारी नहीं मिल रही।";
+  else {
+    const b = await navigator.getBattery();
+    m = "बॉस, बैटरी " + Math.round(b.level * 100) + " प्रतिशत है और " + (b.charging ? "चार्ज हो रहा है।" : "चार्ज नहीं हो रहा।");
+  }
+  add("model", m); speak(m);
+}
+
+function handleCommand(text) {
+  const t = text.toLowerCase();
+  const T = "(thron|थ्र[ोॉ]न)";
+    if (checkSize(text)) { const r = who === "thron" ? "ठीक है बॉस।" : "ठीक है।"; add("model", r); speak(r); return true; }
+  const fm = text.match(/(?:yaad rakh(?:na|o)?|याद रख(?:ना|ो)?)\s*[:,-]?\s*(.+)/i);
+  if (fm) { addFact(fm[1]); const r = (who === "thron" ? "बॉस, " : "") + "याद रख लिया।"; add("model", r); speak(r); return true; }
+  if (/(yaadasht|yadasht|यादाश्त|याददाश्त).*(saaf|saf|साफ|mita|मिटा)/.test(t)) {
+    try { localStorage.removeItem(histKey()); localStorage.removeItem("facts_" + who); } catch (e) {}
+    reloadHist(); return true;
+  }
+  if (new RegExp(T + ".*(aajao|aa jao|ajao|aao|आजाओ|आ जाओ|आओ)").test(t)) { swapTo("thron", "जी बॉस, बताइए।"); return true; }
+  if (new RegExp(T + ".*(jao|jaao|जाओ)").test(t)) { swapTo("miya", "ठीक है, मैं वापस आ गई।"); return true; }
+  if (who === "thron" && /battery|बैटरी/.test(t)) { batteryReport(); return true; }
+  if (who === "thron" && /(scan|स्कैन|security|सिक्योरिटी|सुरक्षा)/.test(t)) { securityScan(); return true; }
+  if (who === "thron" && /(alert|चेतावनी)/.test(t)) {
+    const m = SEC.alerts.length ? "बॉस, आख़िरी चेतावनियाँ: " + SEC.alerts.slice(-3).join("। ") : "बॉस, अभी तक कोई चेतावनी नहीं आई।";
+    add("model", m); speak(m); return true;
+  }
+  return false;
+}
+  // बैटरी कम हो तो Thron खुद आएगा
+if (navigator.getBattery) navigator.getBattery().then(b => {
+  let warned = false;
+  const check = () => {
+    const low = b.level <= 0.2 && !b.charging;
+    if (low && !warned && who === "miya") {
+      warned = true;
+      swapTo("thron", "बॉस, बैटरी " + Math.round(b.level * 100) + " प्रतिशत रह गई है, चार्जर लगा लीजिए।");
+      setTimeout(() => { if (who === "thron") swapTo("miya"); }, 12000);
+    }
+    if (!low) warned = false;
+  };
+  b.addEventListener("levelchange", check);
+  b.addEventListener("chargingchange", check);
+});
+  // ======== THRON SECURITY ========
+const SEC = { locked: false, fails: 0, until: 0, alerts: [], lastAsk: [] };
+
+function thronAlert(msg, severe) {
+  SEC.alerts.push(new Date().toLocaleTimeString() + " " + msg);
+  if (SEC.alerts.length > 50) SEC.alerts.shift();
+  if (severe && who !== "thron") swapTo("thron", "बॉस, " + msg);
+  else { add("model", "बॉस, " + msg); speak("बॉस, " + msg); }
+}
+
+// 1) पेज में अनजाना script/iframe घुसे तो हटाओ
+new MutationObserver(ms => {
+  for (const m of ms) for (const n of m.addedNodes) {
+    if (n.nodeType !== 1) continue;
+    if (["SCRIPT", "IFRAME", "OBJECT", "EMBED"].includes(n.tagName)) {
+      n.remove();
+      thronAlert("पेज में अनजाना " + n.tagName.toLowerCase() + " डाला गया था, मैंने हटा दिया।", true);
+    }
+  }
+}).observe(document.documentElement, { childList: true, subtree: true });
+
+// 2) नेटवर्क और http चेतावनी
+window.addEventListener("offline", () => thronAlert("इंटरनेट कट गया है।", false));
+window.addEventListener("online", () => thronAlert("इंटरनेट वापस आ गया है।", false));
+setTimeout(() => {
+  if (location.protocol === "http:" && location.hostname !== "localhost")
+    thronAlert("ऐप असुरक्षित http पर चल रहा है, https चाहिए।", true);
+}, 4000);
+
+// 3) बैटरी अचानक तेज़ी से खत्म हो तो चेतावनी
+if (navigator.getBattery) navigator.getBattery().then(b => {
+  let ref = { l: b.level, t: Date.now() };
+  b.addEventListener("levelchange", () => {
+    if (b.charging) { ref = { l: b.level, t: Date.now() }; return; }
+    const mins = (Date.now() - ref.t) / 60000;
+    if (mins >= 10) {
+      const drop = (ref.l - b.level) * 100;
+      if (drop / mins > 1) thronAlert("बैटरी " + Math.round(mins) + " मिनट में " + Math.round(drop) + " प्रतिशत गिरी है। कोई ऐप पीछे चल रही हो सकती है, सेटिंग में बैटरी उपयोग देखिए।", false);
+      ref = { l: b.level, t: Date.now() };
+    }
+  });
+});
+
+// 4) अनुमति जाँच + सिक्योरिटी स्कैन
+async function permReport() {
+  const out = [];
+  for (const n of ["microphone", "camera", "geolocation", "notifications"]) {
+    try { const p = await navigator.permissions.query({ name: n }); out.push(n + ":" + p.state); } catch (e) {}
+  }
+  return out;
+}
+async function securityScan() {
+  const issues = [];
+  if (location.protocol === "http:" && location.hostname !== "localhost") issues.push("ऐप http पर है");
+  if (!navigator.onLine) issues.push("इंटरनेट बंद है");
+  const granted = (await permReport()).filter(x => x.endsWith(":granted")).map(x => x.split(":")[0]);
+  if (granted.length) issues.push("इन चीज़ों की अनुमति मिली हुई है: " + granted.join(", "));
+  if (SEC.alerts.length) issues.push("अब तक " + SEC.alerts.length + " चेतावनी आ चुकी हैं");
+  const m = issues.length ? "बॉस, स्कैन पूरा। " + issues.join("। ") + "।" : "बॉस, स्कैन पूरा, सब ठीक है।";
+  add("model", m); speak(m);
+}
+
+// 5) PIN लॉक (PIN सिर्फ़ hash बनाकर रखा जाता है)
+async function sha(s) {
+  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("thron:" + s));
+  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+const getPin = () => { try { return localStorage.getItem("pin_h"); } catch (e) { return null; } };
+function lockApp() { SEC.locked = true; log.style.filter = "blur(10px)"; txt.placeholder = "लॉक है: thron unlock PIN"; }
+function unlockApp() { SEC.locked = false; SEC.fails = 0; log.style.filter = ""; txt.placeholder = "यहाँ लिखें…"; }
+
+async function handleSecret(text) {
+  const t = text.trim().toLowerCase();
+  const N = "(?:thron|थ्रोन)";
+  let m;
+  if ((m = t.match(new RegExp("^" + N + "\\s+(?:pin|पिन)\\s+set\\s+(\\d{4,8})$")))) {
+    if (SEC.locked) return true;
+    if (!window.crypto || !crypto.subtle) { status.textContent = "PIN के लिए सुरक्षित (https) कनेक्शन चाहिए।"; return true; }
+    try { localStorage.setItem("pin_h", await sha(m[1])); } catch (e) {}
+    status.textContent = "PIN सेट हो गया।"; speak("बॉस, PIN सेट हो गया।");
+    return true;
+  }
+  if (new RegExp("^" + N + "\\s+(?:lock|लॉक)$").test(t)) {
+    if (!getPin()) { status.textContent = "पहले PIN सेट करें: thron pin set 1234"; return true; }
+    lockApp(); speak("बॉस, लॉक कर दिया।");
+    return true;
+  }
+  if ((m = t.match(new RegExp("^" + N + "\\s+(?:unlock|अनलॉक)\\s+(\\d{4,8})$")))) {
+    if (!SEC.locked) return true;
+    if (Date.now() < SEC.until) { status.textContent = "कुछ देर रुककर कोशिश करें।"; return true; }
+    if (window.crypto && crypto.subtle && (await sha(m[1])) === getPin()) { unlockApp(); speak("बॉस, अनलॉक हो गया।"); }
+    else {
+      SEC.fails++;
+      if (SEC.fails >= 3) { SEC.fails = 0; SEC.until = Date.now() + 60000; thronAlert("गलत PIN तीन बार डाला गया, एक मिनट के लिए रोक दिया।", true); }
+      else status.textContent = "गलत PIN।";
+    }
+    return true;
+  }
+  if (SEC.locked) { status.textContent = "लॉक है। thron unlock PIN लिखें।"; return true; }
+  return false;
+}
+
+// 6) ऐप 60 सेकंड से ज़्यादा बैकग्राउंड में रहे तो अपने आप लॉक
+let hiddenAt = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) hiddenAt = Date.now();
+  else if (hiddenAt && Date.now() - hiddenAt > 60000 && getPin()) lockApp();
+});
+if (getPin()) lockApp();
 // ---- Gemini से बात ----
 async function ask(text) {
-  if (!text.trim()) return;
+    if (!text.trim()) return;
+  if (await handleSecret(text)) return;
   add("user", text);
+  if (handleCommand(text)) return;
+  const nowT = Date.now();
+  SEC.lastAsk = SEC.lastAsk.filter(x => nowT - x < 60000);
+  if (SEC.lastAsk.length >= 15) { status.textContent = "बहुत तेज़ी से सवाल, एक मिनट रुकिए।"; return; }
+  SEC.lastAsk.push(nowT);
   history.push({ role: "user", parts: [{ text }] });
   status.textContent = "सोच रही हूँ…";
   try {
     const r = await fetch(WORKER_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ systemInstruction: { parts: [{ text: PERSONA }] }, contents: history.slice(-20) })
+            body: JSON.stringify({ systemInstruction: { parts: [{ text: persona() }] }, contents: history.slice(-20) })
     });
     const data = await r.json();
     const reply = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("") ||

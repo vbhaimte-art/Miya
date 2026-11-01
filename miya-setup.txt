@@ -1,6 +1,8 @@
 set -e
 P=miya-app
-mkdir -p $P/app/src/main/java/com/miya/app $P/app/src/main/assets
+mkdir -p $P/app/src/main/java/com/miya/app 
+if [ -f thron.vrm ]; then cp thron.vrm $P/app/src/main/assets/thron.vrm; fi
+$P/app/src/main/assets
 cat > $P/settings.gradle <<'MIYA_EOF_0'
 pluginManagement {
     repositories { google(); mavenCentral(); gradlePluginPortal() }

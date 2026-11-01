@@ -94,11 +94,11 @@ function loadHist() {
   } catch (e) { return []; }
 }
 function greetLine() { return who === "thron" ? "जी बॉस, थ्रोन हाज़िर है।" : "नमस्ते! मैं " + NAME + " हूँ। माइक दबाकर बोलिए या लिखिए।"; }
-function reloadHist() {
+function reloadHist(noGreet) {
   history = loadHist();
   log.innerHTML = "";
   history.forEach(h => add(h.role, h.parts[0].text));
-  if (!history.length) add("model", greetLine());
+    if (!history.length && !noGreet) add("model", greetLine());
 }
 function save() {
   history = history.slice(-20);
@@ -206,7 +206,7 @@ function resizeMiya(target) {
   if (new RegExp("(?:ba?d[aie]|बड.?[ाीे])\\s*" + J).test(t)) { resizeMiya(1.4); return true; }
   if (new RegExp("(?:normal|नॉर्मल|सामान्य)\\s*" + J).test(t)) { resizeMiya(1); return true; }
   return false;
-}
+  }
   const waitVrm = setInterval(() => {
   if (vrm && head) { clearInterval(waitVrm); setTimeout(() => resizeMiya(0.5), 1500); }
 }, 300);
@@ -216,7 +216,7 @@ function frame() {
   requestAnimationFrame(frame);
   const dt = clock.getDelta(), t = clock.elapsedTime;
   if (vrm) {
-    const em = vrm.expressionManager;
+       const em = vrm.expressionManager || { getValue: () => 0, setValue() {} };
     const target = speaking ? 0.25 + 0.45 * Math.abs(Math.sin(t * 13)) + 0.15 * Math.random() : 0;
     const cur = em.getValue("aa") || 0;
     em.setValue("aa", cur + (target - cur) * 0.35);
@@ -254,7 +254,7 @@ function swapTo(target, greet) {
   canvas.style.opacity = 0;
   setTimeout(() => {
     who = target;
-        reloadHist();
+            reloadHist(!!greet);
     loadChar(target === "thron" ? THRON_MODEL : MODEL, () => {
       canvas.style.opacity = 1;
       busy = false;

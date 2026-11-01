@@ -419,11 +419,15 @@ android.content.SharedPreferences store() {
     return getSharedPreferences("miya_store", MODE_PRIVATE);
 }
 
-String personaNow() {
-    String base = curChar.equals("yor")
-            ? PERSONA.replace("\"मिया\"", "\"योर\"") + YOR_STYLE
-            : curChar.equals("thron") ? THRON_PERSONA : PERSONA;
-YOR_STYLE : PERSONA;
+    String personaNow() {
+    String base;
+    if (curChar.equals("yor")) {
+        base = PERSONA.replace("\"मिया\"", "\"योर\"") + YOR_STYLE;
+    } else if (curChar.equals("thron")) {
+        base = THRON_PERSONA;
+    } else {
+        base = PERSONA;
+    }
     String mem = store().getString("mem_" + curChar, "");
     if (mem.isEmpty()) return base;
     return base + "\nमेरे बारे में तुम्हें ये बातें याद हैं, इनका ध्यान रखो:\n" + mem;

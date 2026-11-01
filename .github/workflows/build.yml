@@ -9,6 +9,9 @@ on:
       - 'miya-setup.txt'
       - 'miya-voice.txt'
       - 'model.vrm'
+            - 'index.html'
+      - 'thron.vrm'
+      - 'yor.vrm'
 
 permissions:
   contents: write

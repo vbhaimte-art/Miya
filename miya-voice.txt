@@ -271,11 +271,7 @@ public class MiyaService extends Service {
         showChar();
         cmdUntil = System.currentTimeMillis() + CMD_WINDOW_MS;
         js("setText(" + JSONObject.quote(t) + ")");
-        if (ttsReady) {
-            tts.setLanguage(new Locale("hi", "IN"));
-            tts.setPitch(curChar.equals("thron") ? 0.8f : 1f);
-            tts.speak(t, TextToSpeech.QUEUE_FLUSH, null, "miya");
-        }
+      speak(t);
     }
 
     void setDance(boolean on) {
@@ -288,7 +284,7 @@ public class MiyaService extends Service {
     void onTap() {
         markActive();
         if (speaking) {
-            if (tts != null) tts.stop();
+            stopVoice();
             speaking = false;
             js("setSpeaking(false)");
             return;
@@ -1587,14 +1583,126 @@ public class MiyaService extends Service {
             }
         }
         js("setText(" + JSONObject.quote(shown) + ")");
-        if (!err && ttsReady) {
-            boolean hi = shown.matches("(?s).*[\\u0900-\\u097F].*");
-            tts.setLanguage(hi ? new Locale("hi", "IN") : Locale.US);
-            tts.setPitch(curChar.equals("thron") ? 0.8f : 1f);
-            tts.speak(shown, TextToSpeech.QUEUE_FLUSH, null, "miya");
-        }
+                if (!err) speak(shown);
+    }
+    final ExecutorService voiceEx = Executors.newSingleThreadExecutor();
+    volatile android.media.AudioTrack track;
+    volatile int ttsGen = 0;
+
+    String voiceFor() {
+        if (curChar.equals("thron")) return "Alnilam";
+        if (curChar.equals("yor")) return "Kore";
+        return "Achernar";
     }
 
+    String styleFor() {
+        if (curChar.equals("thron")) {
+            return "Say this in a calm, deep, protective voice, speaking slowly and steadily:";
+        }
+        return "Say this in a soft, calm, sweet and affectionate voice, like lovingly talking to someone close. "
+                + "Speak slowly and gently, with a tiny smile in the voice, never loud or rushed:";
+    }
+
+    void stopVoice() {
+        ttsGen++;
+        try { if (tts != null) tts.stop(); } catch (Exception e) { }
+        try { if (track != null) track.stop(); } catch (Exception e) { }
+    }
+
+    void speak(String raw) {
+        stopVoice();
+        final String t = raw.replaceAll("[*#`_]", "").trim();
+        if (t.isEmpty()) return;
+        final int gen = ttsGen;
+        final String voice = voiceFor(), style = styleFor();
+        speaking = true;
+        voiceEx.execute(() -> {
+            byte[] pcm = null;
+            try { pcm = fetchVoice(t, voice, style); } catch (Exception e) { }
+            if (gen != ttsGen) return;
+            if (pcm == null || pcm.length < 2000) {
+                ui.post(() -> { if (gen == ttsGen) fallbackTts(t); });
+                return;
+            }
+            playPcm(pcm, gen);
+        });
+    }
+
+    void fallbackTts(String t) {
+        if (!ttsReady) { speaking = false; return; }
+        boolean hi = t.matches("(?s).*[\\u0900-\\u097F].*");
+        tts.setLanguage(hi ? new Locale("hi", "IN") : Locale.US);
+        tts.setPitch(curChar.equals("thron") ? 0.8f : 1f);
+        tts.speak(t, TextToSpeech.QUEUE_FLUSH, null, "miya");
+    }
+
+    byte[] fetchVoice(String t, String voice, String style) throws Exception {
+        if (t.length() > 600) t = t.substring(0, 600);
+        JSONObject body = new JSONObject().put("text", t).put("voice", voice).put("style", style);
+        HttpURLConnection c = (HttpURLConnection) new URL(WORKER + "/tts").openConnection();
+        c.setRequestMethod("POST");
+        c.setRequestProperty("Content-Type", "application/json");
+        c.setRequestProperty("x-miya-key", APP_KEY);
+        c.setConnectTimeout(15000);
+        c.setReadTimeout(40000);
+        c.setDoOutput(true);
+        try (OutputStream o = c.getOutputStream()) {
+            o.write(body.toString().getBytes("UTF-8"));
+        }
+        if (c.getResponseCode() >= 400) return null;
+        ByteArrayOutputStream bo = new ByteArrayOutputStream();
+        try (InputStream in = c.getInputStream()) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+        }
+        JSONObject j = new JSONObject(bo.toString("UTF-8"));
+        JSONArray cand = j.optJSONArray("candidates");
+        if (cand == null || cand.length() == 0) return null;
+        JSONArray parts = cand.getJSONObject(0).getJSONObject("content").getJSONArray("parts");
+        for (int i = 0; i < parts.length(); i++) {
+            JSONObject p = parts.getJSONObject(i);
+            JSONObject d = p.optJSONObject("inlineData");
+            if (d == null) d = p.optJSONObject("inline_data");
+            if (d != null) return android.util.Base64.decode(d.getString("data"), android.util.Base64.DEFAULT);
+        }
+        return null;
+    }
+
+    void playPcm(byte[] pcm, int gen) {
+        android.media.AudioTrack at = null;
+        try {
+            final int rate = 24000;
+            at = new android.media.AudioTrack.Builder()
+                    .setAudioAttributes(new android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                    .setAudioFormat(new android.media.AudioFormat.Builder()
+                            .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(rate)
+                            .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build())
+                    .setBufferSizeInBytes(pcm.length)
+                    .setTransferMode(android.media.AudioTrack.MODE_STATIC)
+                    .build();
+            at.write(pcm, 0, pcm.length);
+            if (gen != ttsGen) { at.release(); return; }
+            track = at;
+            ui.post(() -> { if (gen == ttsGen) js("setSpeaking(true)"); });
+            at.play();
+            int frames = pcm.length / 2;
+            while (gen == ttsGen && at.getPlaybackHeadPosition() < frames - 200) {
+                Thread.sleep(40);
+            }
+        } catch (Exception e) {
+        } finally {
+            try { if (at != null) { at.stop(); at.release(); } } catch (Exception e) { }
+            if (track == at) track = null;
+            final int g = gen;
+            ui.post(() -> {
+                if (g == ttsGen) { speaking = false; js("setSpeaking(false)"); }
+            });
+        }
+    }
     static JSONObject msgOf(String role, String text) {
         try {
             return new JSONObject().put("role", role)
@@ -1623,6 +1731,8 @@ public class MiyaService extends Service {
         } catch (Exception e) {
         }
         if (rec != null) rec.destroy();
+       stopVoice();
+        voiceEx.shutdownNow();
         if (tts != null) tts.shutdown();
         net.shutdownNow();
         super.onDestroy();

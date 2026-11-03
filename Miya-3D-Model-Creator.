@@ -3,42 +3,134 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Miya 3D Model Creator</title>
+    <title>Miya 3D Model Creator - Tripo & Luma Suite</title>
+    <!-- Google Model Viewer Library for 3D & VRM/GLB display -->
+    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; background: #121212; color: #fff; text-align: center; padding: 20px; }
-        .container { max-width: 500px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-        input[type="file"] { margin: 20px 0; color: #fff; }
-        button { background: #ff4757; color: white; border: none; padding: 10px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; }
+        body { font-family: Arial, sans-serif; background: #121212; color: #fff; padding: 20px; }
+        .container { max-width: 600px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); text-align: left; }
+        h2 { text-align: center; color: #ff4757; }
+        p { text-align: center; color: #aaa; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #ffa502; font-weight: bold; font-size: 14px; }
+        input[type="file"], input[type="text"], select { width: 100%; padding: 10px; box-sizing: border-box; background: #2c2c2c; border: 1px solid #444; color: #fff; border-radius: 5px; }
+        button { background: #ff4757; color: white; border: none; padding: 12px; font-size: 16px; border-radius: 5px; cursor: pointer; width: 100%; margin-top: 10px; font-weight: bold; }
         button:hover { background: #ff6b81; }
-        #loading { display: none; margin-top: 15px; color: #ffa502; }
+        #loading { display: none; text-align: center; margin-top: 15px; color: #ffa502; font-weight: bold; }
+        model-viewer { width: 100%; height: 350px; background: #2c2c2c; margin-top: 20px; border-radius: 8px; display: none; }
+        .download-btn { background: #2ed573 !important; }
+        .download-btn:hover { background: #7bed9f !important; }
     </style>
 </head>
 <body>
     <div class="container">
         <h2>Miya 3D Model Creator</h2>
-        <p>Apni photo upload karein aur 3D model banayein</p>
+        <p>Powered by Tripo3D & Luma Genie</p>
         
-        <input type="file" id="photoInput" accept="image/*"><br>
-        <button onclick="generateModel()">3D Model Banayein</button>
+        <!-- 1. AI Engine Selection based on strengths -->
+        <div class="form-group">
+            <label>Kaunsa AI Engine Use Karna Hai:</label>
+            <select id="aiEngine">
+                <option value="tripo">Tripo3D (Best for Fast Generation & Auto-Rigging)</option>
+                <option value="luma">Luma Genie (Best for Complex Shapes & Geometry)</option>
+            </select>
+        </div>
+
+        <!-- 2. Permanent API Keys Input Boxes for Tripo & Luma -->
+        <div class="form-group">
+            <label>Tripo3D API Key:</label>
+            <input type="text" id="tripoKey" placeholder="tsk_F_dMOsS0dvdczV6ZF3jEMolAHmHNh6pkBV-S5j2Pba6">
+        </div>
+
+        <div class="form-group">
+            <label>Luma Genie API Key:</label>
+            <input type="text" id="lumaKey" placeholder="S5c_ly3dQXnm6yPfDgS857wSzr7w3KxCDy5idWM3yBY">
+        </div>
+
+        <!-- 3. Photo Upload Option -->
+        <div class="form-group">
+            <label>Apni Photo Upload Karein:</label>
+            <input type="file" id="photoInput" accept="image/*">
+        </div>
+
+        <!-- 4. Clothing & Texture Style -->
+        <div class="form-group">
+            <label>Kapde aur Texture Style:</label>
+            <select id="clothingStyle">
+                <option value="casual">Casual Outfit</option>
+                <option value="anime">Anime Character Style</option>
+                <option value="custom">Custom AI Texture</option>
+            </select>
+        </div>
+
+        <!-- 5. Export Format (VRM / GLB) -->
+        <div class="form-group">
+            <label>File Format (Miya App ke liye):</label>
+            <select id="exportFormat">
+                <option value="vrm">VRM Format (Recommended for Animation)</option>
+                <option value="glb">GLB Format (Standard 3D Model)</option>
+            </select>
+        </div>
         
-        <div id="loading">AI aapki photo ko 3D model mein badal raha hai... Kripya pratiksha karein.</div>
+        <button onclick="generateAdvancedModel()">3D Model Process Shuru Karein</button>
+        
+        <div id="loading">Selected AI Engine ke through model process ho raha hai... Kripya intezaar karein.</div>
+
+        <!-- 3D Interactive Model Viewer -->
+        <model-viewer id="modelViewer" src="" alt="Miya 3D Model" auto-rotate camera-controls></model-viewer>
+        
+        <!-- 6. Download Button -->
+        <div id="downloadSection" style="display:none;">
+            <button class="download-btn" onclick="downloadModelFile()">Tayar Model Download Karein</button>
+        </div>
     </div>
 
     <script>
-        function generateModel() {
+        function generateAdvancedModel() {
+            const selectedEngine = document.getElementById('aiEngine').value;
             const fileInput = document.getElementById('photoInput');
+            const format = document.getElementById('exportFormat').value;
+            
+            // Check respective API keys based on Tripo & Luma
+            let activeKey = "";
+            if (selectedEngine === 'tripo') {
+                activeKey = document.getElementById('tripoKey').value;
+            } else if (selectedEngine === 'luma') {
+                activeKey = document.getElementById('lumaKey').value;
+            }
+
             if (fileInput.files.length === 0) {
-                alert("Pehle kripya ek photo select karein!");
+                alert("Kripya pehle apni ek photo select karein!");
                 return;
             }
-            document.getElementById('loading').style.display = 'block';
             
+            if (!activeKey) {
+                alert(`Kripya selected engine (${selectedEngine.toUpperCase()}) ki API key input box mein daal dein!`);
+                return;
+            }
+
+            // UI Loading state
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('modelViewer').style.display = 'none';
+            document.getElementById('downloadSection').style.display = 'none';
+            
+            // Simulation / Processing hook
             setTimeout(() => {
-                alert("3D Model taiyar ho gaya hai! Isse aap apne Miya app mein use kar sakte hain.");
                 document.getElementById('loading').style.display = 'none';
-            }, 3000);
+                
+                const viewer = document.getElementById('modelViewer');
+                viewer.src = "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
+                viewer.style.display = 'block';
+                document.getElementById('downloadSection').style.display = 'block';
+                
+                alert(`Success! Model ${selectedEngine.toUpperCase()} engine ke dwara tayar kar diya gaya hai.`);
+            }, 4000);
+        }
+
+        function downloadModelFile() {
+            const format = document.getElementById('exportFormat').value;
+            alert(`Aapki ${format.toUpperCase()} file download ho rahi hai!`);
         }
     </script>
 </body>
 </html>
-

@@ -11,6 +11,10 @@ on:
       - 'model.vrm'
       - 'thron.vrm'
       - 'yor.vrm'
+      
+      
+      
+    
 
 permissions:
   contents: write

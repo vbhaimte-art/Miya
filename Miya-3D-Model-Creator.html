@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Miya 3D Model Creator - Tripo & Luma Suite</title>
+    <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background: #121212; color: #fff; padding: 20px; }
+        .container { max-width: 600px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); text-align: left; }
+        h2 { text-align: center; color: #ff4757; }
+        p { text-align: center; color: #aaa; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: #ffa502; font-weight: bold; font-size: 14px; }
+        input[type="file"], input[type="text"], select { width: 100%; padding: 10px; box-sizing: border-box; background: #2c2c2c; border: 1px solid #444; color: #fff; border-radius: 5px; }
+        button { background: #ff4757; color: white; border: none; padding: 12px; font-size: 16px; border-radius: 5px; cursor: pointer; width: 100%; margin-top: 10px; font-weight: bold; }
+        button:hover { background: #ff6b81; }
+        #loading { display: none; text-align: center; margin-top: 15px; color: #ffa502; font-weight: bold; }
+        model-viewer { width: 100%; height: 350px; background: #2c2c2c; margin-top: 20px; border-radius: 8px; display: none; }
+        .download-btn { background: #2ed573 !important; }
+        .download-btn:hover { background: #7bed9f !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Miya 3D Model Creator</h2>
+        <p>Powered by Tripo3D & Luma Genie</p>
+        
+        <div class="form-group">
+            <label>Kaunsa AI Engine Use Karna Hai:</label>
+            <select id="aiEngine">
+                <option value="tripo">Tripo3D (Best for Fast Generation & Auto-Rigging)</option>
+                <option value="luma">Luma Genie (Best for Complex Shapes & Geometry)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Tripo3D API Key:</label>
+            <input type="text" id="tripoKey" placeholder="tsk_F_dMOsS0dvdczV6ZF3jEMolAHmHNh6pkBV-S5j2Pba6" oninput="saveKeys()">
+        </div>
+
+        <div class="form-group">
+            <label>Luma Genie API Key:</label>
+            <input type="text" id="lumaKey" placeholder="S5c_ly3dQXnm6yPfDgS857wSzr7w3KxCDy5idWM3yBY" oninput="saveKeys()">
+        </div>
+
+        <div class="form-group">
+            <label>Apni Photo Upload Karein:</label>
+            <input type="file" id="photoInput" accept="image/*">
+        </div>
+
+        <div class="form-group">
+            <label>Kapde aur Texture Style:</label>
+            <select id="clothingStyle">
+                <option value="casual">Casual Outfit</option>
+                <option value="anime">Anime Character Style</option>
+                <option value="custom">Custom AI Texture</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>File Format (Miya App ke liye):</label>
+            <select id="exportFormat">
+                <option value="vrm">VRM Format (Recommended for Animation)</option>
+                <option value="glb">GLB Format (Standard 3D Model)</option>
+            </select>
+        </div>
+        
+        <button onclick="generateAdvancedModel()">3D Model Process Shuru Karein</button>
+        
+        <div id="loading">Connecting to API server... Model generate ho raha hai, kripya intezaar karein.</div>
+
+        <model-viewer id="modelViewer" src="" alt="Miya 3D Model" auto-rotate camera-controls></model-viewer>
+        
+        <div id="downloadSection" style="display:none;">
+            <button class="download-btn" id="downloadBtn" onclick="downloadModelFile()">Tayar Model Download Karein</button>
+        </div>
+    </div>
+
+    <script>
+        let currentModelUrl = "";
+
+        // Page load hote hi agar saved keys hongi toh input box me apne aap aa jayengi
+        window.onload = function() {
+            if(localStorage.getItem('tripo_saved_key')) {
+                document.getElementById('tripoKey').value = localStorage.getItem('tripo_saved_key');
+            }
+            if(localStorage.getItem('luma_saved_key')) {
+                document.getElementById('lumaKey').value = localStorage.getItem('luma_saved_key');
+            }
+        };
+
+        // Keys type karte hi browser me secure save ho jayengi
+        function saveKeys() {
+            const tripoVal = document.getElementById('tripoKey').value;
+            const lumaVal = document.getElementById('lumaKey').value;
+            localStorage.setItem('tripo_saved_key', tripoVal);
+            localStorage.setItem('luma_saved_key', lumaVal);
+        }
+
+        async function generateAdvancedModel() {
+            const selectedEngine = document.getElementById('aiEngine').value;
+            const fileInput = document.getElementById('photoInput');
+            const statusDiv = document.getElementById('loading');
+            
+            let activeKey = "";
+            if (selectedEngine === 'tripo') {
+                activeKey = document.getElementById('tripoKey').value.trim();
+            } else if (selectedEngine === 'luma') {
+                activeKey = document.getElementById('lumaKey').value.trim();
+            }
+
+            if (fileInput.files.length === 0) {
+                alert("Kripya pehle apni ek photo select karein!");
+                return;
+            }
+            
+            if (!activeKey) {
+                alert(`Kripya selected engine (${selectedEngine.toUpperCase()}) ki API key input box mein daal dein!`);
+                return;
+            }
+
+            statusDiv.style.display = 'block';
+            document.getElementById('modelViewer').style.display = 'none';
+            document.getElementById('downloadSection').style.display = 'none';
+
+            try {
+                if (selectedEngine === 'tripo') {
+                    await processTripoAPI(activeKey, fileInput.files[0]);
+                } else if (selectedEngine === 'luma') {
+                    await processLumaAPI(activeKey, fileInput.files[0]);
+                }
+            } catch (error) {
+                console.error(error);
+                alert("API Process me error aaya: " + error.message);
+                statusDiv.style.display = 'none';
+            }
+        }
+
+        async function processTripoAPI(apiKey, imageFile) {
+            const statusDiv = document.getElementById('loading');
+            statusDiv.innerText = "Tripo3D: File Upload & Task Creation...";
+
+            const formData = new FormData();
+            formData.append('file', imageFile);
+            formData.append('type', 'image_to_3d');
+
+            const createRes = await fetch('https://api.tripo3d.ai/v2/openapi/task', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}` },
+                body: formData
+            });
+
+            const createData = await createRes.json();
+            if (!createData.data || !createData.data.task_id) {
+                throw new Error(createData.message || "Tripo3D Task create nahi ho paya.");
+            }
+
+            const taskId = createData.data.task_id;
+            statusDiv.innerText = "Tripo3D: 3D Model Generate Ho Raha hai...";
+            pollTaskStatus(`https://api.tripo3d.ai/v2/openapi/task/${taskId}`, apiKey, 'tripo');
+        }
+
+        async function processLumaAPI(apiKey, imageFile) {
+            const statusDiv = document.getElementById('loading');
+            statusDiv.innerText = "Luma Genie: Task Request Bhej Rahe Hain...";
+
+            const createRes = await fetch('https://api.lumalabs.ai/api/v1/genie/tasks', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    prompt: "Humanoid 3D character model based on uploaded image",
+                    aspect_ratio: "1:1"
+                })
+            });
+
+            const createData = await createRes.json();
+            const taskId = createData.id || (createData.data && createData.data.id);
+            
+            if (!taskId) {
+                throw new Error("Luma Genie Task create nahi ho paya.");
+            }
+
+            statusDiv.innerText = "Luma Genie: 3D Model Rendering Chalu Hai...";
+            pollTaskStatus(`https://api.lumalabs.ai/api/v1/genie/tasks/${taskId}`, apiKey, 'luma');
+        }
+
+        function pollTaskStatus(url, apiKey, engine) {
+            const statusDiv = document.getElementById('loading');
+            
+            const interval = setInterval(async () => {
+                try {
+                    const res = await fetch(url, {
+                        headers: { 'Authorization': `Bearer ${apiKey}` }
+                    });
+                    const data = await res.json();
+                    
+                    let status = "";
+                    let resultGlbUrl = "";
+
+                    if (engine === 'tripo') {
+                        status = data.data ? data.data.status : "";
+                        if (status === 'success') {
+                            resultGlbUrl = data.data.output.model || data.data.output.pbr_model;
+                        }
+                    } else if (engine === 'luma') {
+                        status = data.state || (data.data && data.data.state);
+                        if (status === 'completed' || status === 'success') {
+                            resultGlbUrl = data.assets ? data.assets.glb : (data.output && data.output.glb);
+                        }
+                    }
+
+                    if (status === 'success' || status === 'completed') {
+                        clearInterval(interval);
+                        statusDiv.style.display = 'none';
+                        displayModel(resultGlbUrl);
+                    } else if (status === 'failed') {
+                        clearInterval(interval);
+                        statusDiv.innerText = "Model Generation Fail Ho Gaya!";
+                        alert("API Task Fail ho gaya, kripya dobara try karein.");
+                    }
+                } catch (err) {
+                    console.error("Polling error:", err);
+                }
+            }, 3000);
+        }
+
+        function displayModel(glbUrl) {
+            currentModelUrl = glbUrl;
+            const viewer = document.getElementById('modelViewer');
+            viewer.src = glbUrl;
+            viewer.style.display = 'block';
+            document.getElementById('downloadSection').style.display = 'block';
+            alert("Success! Live 3D Model Successfully Generate Ho Gaya Hai.");
+        }
+
+        function downloadModelFile() {
+            if (currentModelUrl) {
+                const a = document.createElement('a');
+                a.href = currentModelUrl;
+                a.download = `Miya_3D_Model.${document.getElementById('exportFormat').value}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            } else {
+                alert("Koi active 3D model file download ke liye ready nahi hai.");
+            }
+        }
+    </script>
+</body>
+</html>

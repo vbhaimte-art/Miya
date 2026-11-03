@@ -1,1 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Miya 3D Model Creator</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #121212; color: #fff; text-align: center; padding: 20px; }
+        .container { max-width: 500px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        input[type="file"] { margin: 20px 0; color: #fff; }
+        button { background: #ff4757; color: white; border: none; padding: 10px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #ff6b81; }
+        #loading { display: none; margin-top: 15px; color: #ffa502; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Miya 3D Model Creator</h2>
+        <p>Apni photo upload karein aur 3D model banayein</p>
+        
+        <input type="file" id="photoInput" accept="image/*"><br>
+        <button onclick="generateModel()">3D Model Banayein</button>
+        
+        <div id="loading">AI aapki photo ko 3D model mein badal raha hai... Kripya pratiksha karein.</div>
+    </div>
+
+    <script>
+        function generateModel() {
+            const fileInput = document.getElementById('photoInput');
+            if (fileInput.files.length === 0) {
+                alert("Pehle kripya ek photo select karein!");
+                return;
+            }
+            document.getElementById('loading').style.display = 'block';
+            
+            setTimeout(() => {
+                alert("3D Model taiyar ho gaya hai! Isse aap apne Miya app mein use kar sakte hain.");
+                document.getElementById('loading').style.display = 'none';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
 

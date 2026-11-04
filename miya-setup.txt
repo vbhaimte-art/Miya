@@ -22,8 +22,6 @@ import android.view.WindowManager;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-import org.json.JSONObject;
-
 import java.io.OutputStream;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -79,7 +77,7 @@ public class MiyaService extends Service {
         return START_STICKY;
     }
 
-    // --- FOREGROUND NOTIFICATION (FIXED) ---
+    // --- FOREGROUND NOTIFICATION (FIXED FOR ANDROID 12+) ---
     void startFg() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm != null) {
@@ -87,13 +85,15 @@ public class MiyaService extends Service {
         }
         
         Intent stop = new Intent(this, MiyaService.class).setAction("STOP");
+        // Fixed PendingIntent Flags
         PendingIntent pi = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         
+        // Fixed addAction Syntax
         Notification n = new Notification.Builder(this, "miya")
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
                 .setContentTitle("मिया चल रही है")
                 .setContentText("बंद करने के लिए नीचे का बटन दबाएँ")
-                .addAction(0, "बंद करें", pi) // Fixed Syntax
+                .addAction(0, "बंद करें", pi) 
                 .build();
                 
         startForeground(1, n);
@@ -178,26 +178,21 @@ public class MiyaService extends Service {
         rec.startListening(intent);
     }
 
-    // --- COMMAND PROCESSOR (THE CORE HACKING LOGIC) ---
+    // --- COMMAND PROCESSOR (NO CAMERA) ---
     void processCommand(String cmd) {
         Log.d("MIYA_AI", "Command Received: " + cmd);
         
-        // 1. Spy/Camera Tool
-        if (cmd.contains("spy") || cmd.contains("camera")) {
-            speak("Spy mode active.");
-            executeTool("SPY");
-        }
-        // 2. Network Scan Tool
-        else if (cmd.contains("scan") || cmd.contains("network") || cmd.contains("wifi")) {
+        // 1. Network Scan Tool
+        if (cmd.contains("scan") || cmd.contains("network") || cmd.contains("wifi")) {
             speak("Scanning network devices...");
             executeTool("SCAN");
         }
-        // 3. DoS Attack Tool
+        // 2. DoS Attack Tool
         else if (cmd.contains("dos") || cmd.contains("attack")) {
             speak("Initiating DoS attack simulation.");
             executeTool("DOS");
         }
-        // 4. Data Scraping Tool
+        // 3. Data Scraping Tool
         else if (cmd.contains("scrape") || cmd.contains("data")) {
             speak("Scraping public data from API.");
             executeTool("SCRAPE");
@@ -210,10 +205,6 @@ public class MiyaService extends Service {
     // --- TOOL EXECUTION ENGINE ---
     private void executeTool(String toolType) {
         switch (toolType) {
-            case "SPY":
-                updateStatus("📷 CAMERA ACTIVE");
-                break;
-                
             case "SCAN":
                 updateStatus("📡 SCANNING NETWORK...");
                 if (termuxConnected) {

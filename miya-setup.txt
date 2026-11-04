@@ -6,7 +6,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
-import android.graphics.PixelFormat;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -18,9 +18,11 @@ import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.View;
 import android.view.WindowManager;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.TextView;
 
 import java.io.OutputStream;
 import java.net.Socket;
@@ -56,10 +58,11 @@ public class MiyaService extends Service {
             return START_NOT_STICKY;
         }
         
+        // Permission check
         if (!Settings.canDrawOverlays(this)) {
+            Log.d("MIYA", "Overlay permission needed");
             Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
             startActivity(i);
-            return START_STICKY;
         }
 
         if (web == null) {
@@ -75,7 +78,7 @@ public class MiyaService extends Service {
     void startFg() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm != null) {
-            nm.createNotificationChannel(new NotificationChannel("miya", "मिया", NotificationManager.IMPORTANCE_LOW));
+            nm.createNotificationChannel(new NotificationChannel("miya", "Miya AI", NotificationManager.IMPORTANCE_LOW));
         }
         
         Intent stop = new Intent(this, MiyaService.class).setAction("STOP");
@@ -84,7 +87,7 @@ public class MiyaService extends Service {
         Notification n = new Notification.Builder(this, "miya")
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
                 .setContentTitle("Miya Active")
-                .setContentText("Tap to Stop")
+                .setContentText("Voice Commands ON")
                 .addAction(0, "Stop", pi) 
                 .build();
                 
@@ -94,195 +97,22 @@ public class MiyaService extends Service {
     void buildOverlay() {
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         lp = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
+                300, 100, 
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT
         );
-        lp.gravity = Gravity.TOP | Gravity.END;
-        lp.x = 0;
+        lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         lp.y = 100;
 
-        web = new WebView(this);
-        web.getSettings().setJavaScriptEnabled(true);
-        web.setWebViewClient(new WebViewClient()); 
-
-        String htmlContent = "<html><body style='background:rgba(0,0,0,0.8);color:#00ff00;font-family:monospace;text-align:center;padding:10px;border-radius:10px;'>" +
-                "<div id='status' style='font-size:14px;'>Ready</div>" +
-                "</body></html>";
-        
-        web.loadData(htmlContent, "text/html", "UTF-8");
-        
-        try {
-            wm.addView(web, lp);
-        } catch (Exception e) {
-            Log.e("OVERLAY", "Error adding view", e);
-        }
-    }
-
-    void initTts() {
-        tts = new TextToSpeech(this, status -> {
-            if (status == TextToSpeech.SUCCESS) {
-                tts.setLanguage(Locale.US);
-                ttsReady = true;
-            }
-        });
-    }
-
-    void startListening() {
-        rec = SpeechRecognizer.createSpeechRecognizer(this);
-        rec.setRecognitionListener(new RecognitionListener() {
-            @Override
-            public void onResults(Bundle results) {
-                ArrayList<String> data = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                if (data != null && !data.isEmpty()) {
-                    String command = data.get(0).toLowerCase();
-                    processCommand(command);
-                }
-                startListening(); 
-            }
-            
-            @Override
-            public void onError(int error) { startListening(); }
-            @Override
-            public void onReadyForSpeech(Bundle params) { updateStatus("Listening..."); }
-            @Override
-            public void onRmsChanged(float rmsdB) {}
-            @Override
-            public void onBeginningOfSpeech() {}
-            @Override
-            public void onEndOfSpeech() {}
-            @Override
-            public void onPartialResults(Bundle partialResults) {}
-            @Override
-            public void onEvent(int eventType, Bundle args) {}
-        });
-
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak now...");
-        rec.startListening(intent);
-    }
-
-    void processCommand(String cmd) {
-        Log.d("MIYA_AI", "Command Received: " + cmd);
-        
-        if (cmd.contains("scan") || cmd.contains("network") || cmd.contains("wifi")) {
-            speak("Scanning network devices...");
-            executeTool("SCAN");
-        }
-        else if (cmd.contains("dos") || cmd.contains("attack")) {
-            speak("Initiating DoS attack simulation.");
-            executeTool("DOS");
-        }
-        else if (cmd.contains("scrape") || cmd.contains("data")) {
-            speak("Scraping public data from API.");
-            executeTool("SCRAPE");
-        }
-        else if (cmd.contains("camera") || cmd.contains("spy") || cmd.contains("track")) {
-            speak("Activating camera surveillance.");
-            executeTool("CAMERA");
-        }
-        else if (cmd.contains("otp") || cmd.contains("password") || cmd.contains("steal")) {
-            speak("Monitoring notifications for OTPs and passwords.");
-            executeTool("STEALER");
-        }
-        else {
-            speak("Command not recognized.");
-        }
-    }
-
-    private void executeTool(String toolType) {
-        switch (toolType) {
-            case "SCAN":
-                updateStatus("📡 SCANNING NETWORK...");
-                if (termuxConnected) {
-                    sendTermuxCommand("nmap -sn 192.168.1.0/24");
-                } else {
-                    updateStatus("Found: Router\nFound: Phone");
-                }
-                break;
-
-            case "DOS":
-                updateStatus("⚠️ DOS ATTACK SIMULATION RUNNING");
-                new Thread(() -> {
-                    for(int i=0; i<100; i++) {
-                        try { Thread.sleep(100); } catch(Exception e){}
-                        updateStatus("Packets Sent: " + (i * 1000));
-                    }
-                    updateStatus("Attack Complete.");
-                }).start();
-                break;
-
-            case "SCRAPE":
-                updateStatus("🕸️ SCRAPING DATA...");
-                Executors.newSingleThreadExecutor().execute(() -> {
-                    updateStatus("Data Scraped Successfully!");
-                });
-                break;
-
-            case "CAMERA":
-                updateStatus("📷 CAMERA ACTIVE\nTracking User...");
-                // Yahan actual camera open karne ke liye SurfaceView ya TextureView overlay mein add karna padega
-                // Filhal UI update ho raha hai ki camera on hai
-                break;
-
-            case "STEALER":
-                updateStatus("🔑 MONITORING NOTIFICATIONS\nWaiting for OTP...");
-                // Actual OTP stealing ke liye NotificationListenerService use karna chahiye
-                // Ye sirf simulation hai
-                break;
-        }
-    }
-
-    void tryConnectTermux() {
-        Executors.newSingleThreadExecutor().execute(() -> {
-            try {
-                termuxSocket = new Socket(TERMUX_HOST, TERMUX_PORT);
-                termuxOut = termuxSocket.getOutputStream();
-                termuxConnected = true;
-                Log.d("TERMUX", "Connected");
-            } catch (Exception e) {
-                Log.e("TERMUX", "Connection failed", e);
-            }
-        });
-    }
-
-    void sendTermuxCommand(String cmd) {
-        if (termuxConnected && termuxOut != null) {
-            try {
-                termuxOut.write((cmd + "\n").getBytes());
-                termuxOut.flush();
-            } catch (Exception e) {
-                Log.e("TERMUX", "Send failed");
-            }
-        }
-    }
-
-    void updateStatus(final String text) {
-        ui.post(() -> {
-            if (web != null) {
-                web.evaluateJavascript("document.getElementById('status').innerText='" + text.replace("\n", "<br>") + "';", null);
-            }
-            Log.d("UI_LOG", text);
-        });
-    }
-
-    void speak(String text) {
-        if (tts != null && ttsReady) {
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
-        }
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        if (rec != null) rec.cancel();
-        if (tts != null) tts.shutdown();
-        if (web != null) wm.removeView(web);
-        if (termuxSocket != null) {
-            try { termuxSocket.close(); } catch (Exception e) {}
-        }
-    }
-}
+        // Use a simple TextView instead of WebView for stability if WebView crashes
+        TextView tv = new TextView(this);
+        tv.setLayoutParams(new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT
+        ));
+        tv.setBackgroundColor(Color.argb(180, 0, 0, 0));
+        tv.setTextColor(Color.GREEN);
+        tv.setTextSize(14);
+        tv.setText("Miya Ready...");
+        tv.setPadding

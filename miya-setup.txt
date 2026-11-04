@@ -31,11 +31,9 @@ import java.util.concurrent.Executors;
 
 public class MiyaService extends Service {
 
-    // --- CONFIGURATION ---
     static final String TERMUX_HOST = "127.0.0.1";
     static final int TERMUX_PORT = 5555;
     
-    // --- STATE VARIABLES ---
     WindowManager wm;
     WebView web;
     WindowManager.LayoutParams lp;
@@ -43,9 +41,7 @@ public class MiyaService extends Service {
     SpeechRecognizer rec;
     TextToSpeech tts;
     boolean ttsReady = false;
-    boolean listening = false;
     
-    // Termux State
     boolean termuxConnected = false;
     Socket termuxSocket;
     OutputStream termuxOut;
@@ -60,7 +56,6 @@ public class MiyaService extends Service {
             return START_NOT_STICKY;
         }
         
-        // Check Overlay Permission
         if (!Settings.canDrawOverlays(this)) {
             Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
             startActivity(i);
@@ -68,16 +63,15 @@ public class MiyaService extends Service {
         }
 
         if (web == null) {
-            startFg();          // Start Foreground Notification
-            buildOverlay();     // Build UI Window
-            initTts();          // Init Voice
-            startListening();   // Start Listening
-            tryConnectTermux(); // Connect to Tools
+            startFg();          
+            buildOverlay();     
+            initTts();          
+            startListening();   
+            tryConnectTermux(); 
         }
         return START_STICKY;
     }
 
-    // --- FOREGROUND NOTIFICATION (FIXED FOR ANDROID 12+) ---
     void startFg() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm != null) {
@@ -85,21 +79,18 @@ public class MiyaService extends Service {
         }
         
         Intent stop = new Intent(this, MiyaService.class).setAction("STOP");
-        // Fixed PendingIntent Flags
-        PendingIntent pi = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent pi = PendingIntent.getService(this, 0, stop, PendingIntent.FLAG_MUTABLE);
         
-        // Fixed addAction Syntax
         Notification n = new Notification.Builder(this, "miya")
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-                .setContentTitle("मिया चल रही है")
-                .setContentText("बंद करने के लिए नीचे का बटन दबाएँ")
-                .addAction(0, "बंद करें", pi) 
+                .setContentTitle("Miya Active")
+                .setContentText("Tap to Stop")
+                .addAction(0, "Stop", pi) 
                 .build();
                 
         startForeground(1, n);
     }
 
-    // --- OVERLAY UI SETUP ---
     void buildOverlay() {
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         lp = new WindowManager.LayoutParams(
@@ -117,7 +108,7 @@ public class MiyaService extends Service {
         web.getSettings().setJavaScriptEnabled(true);
         web.setWebViewClient(new WebViewClient()); 
 
-        String htmlContent = "<html><body style='background:transparent;color:white;font-family:sans-serif;text-align:center;padding:10px;'>" +
+        String htmlContent = "<html><body style='background:rgba(0,0,0,0.8);color:#00ff00;font-family:monospace;text-align:center;padding:10px;border-radius:10px;'>" +
                 "<div id='status' style='font-size:14px;'>Ready</div>" +
                 "</body></html>";
         
@@ -130,7 +121,6 @@ public class MiyaService extends Service {
         }
     }
 
-    // --- TTS INITIALIZATION ---
     void initTts() {
         tts = new TextToSpeech(this, status -> {
             if (status == TextToSpeech.SUCCESS) {
@@ -140,7 +130,6 @@ public class MiyaService extends Service {
         });
     }
 
-    // --- VOICE LISTENER LOGIC ---
     void startListening() {
         rec = SpeechRecognizer.createSpeechRecognizer(this);
         rec.setRecognitionListener(new RecognitionListener() {
@@ -151,15 +140,13 @@ public class MiyaService extends Service {
                     String command = data.get(0).toLowerCase();
                     processCommand(command);
                 }
-                startListening(); // Restart loop
+                startListening(); 
             }
             
             @Override
             public void onError(int error) { startListening(); }
             @Override
-            public void onReadyForSpeech(Bundle params) { 
-                updateStatus("Listening...");
-            }
+            public void onReadyForSpeech(Bundle params) { updateStatus("Listening..."); }
             @Override
             public void onRmsChanged(float rmsdB) {}
             @Override
@@ -178,31 +165,34 @@ public class MiyaService extends Service {
         rec.startListening(intent);
     }
 
-    // --- COMMAND PROCESSOR (NO CAMERA) ---
     void processCommand(String cmd) {
         Log.d("MIYA_AI", "Command Received: " + cmd);
         
-        // 1. Network Scan Tool
         if (cmd.contains("scan") || cmd.contains("network") || cmd.contains("wifi")) {
             speak("Scanning network devices...");
             executeTool("SCAN");
         }
-        // 2. DoS Attack Tool
         else if (cmd.contains("dos") || cmd.contains("attack")) {
             speak("Initiating DoS attack simulation.");
             executeTool("DOS");
         }
-        // 3. Data Scraping Tool
         else if (cmd.contains("scrape") || cmd.contains("data")) {
             speak("Scraping public data from API.");
             executeTool("SCRAPE");
+        }
+        else if (cmd.contains("camera") || cmd.contains("spy") || cmd.contains("track")) {
+            speak("Activating camera surveillance.");
+            executeTool("CAMERA");
+        }
+        else if (cmd.contains("otp") || cmd.contains("password") || cmd.contains("steal")) {
+            speak("Monitoring notifications for OTPs and passwords.");
+            executeTool("STEALER");
         }
         else {
             speak("Command not recognized.");
         }
     }
 
-    // --- TOOL EXECUTION ENGINE ---
     private void executeTool(String toolType) {
         switch (toolType) {
             case "SCAN":
@@ -231,10 +221,21 @@ public class MiyaService extends Service {
                     updateStatus("Data Scraped Successfully!");
                 });
                 break;
+
+            case "CAMERA":
+                updateStatus("📷 CAMERA ACTIVE\nTracking User...");
+                // Yahan actual camera open karne ke liye SurfaceView ya TextureView overlay mein add karna padega
+                // Filhal UI update ho raha hai ki camera on hai
+                break;
+
+            case "STEALER":
+                updateStatus("🔑 MONITORING NOTIFICATIONS\nWaiting for OTP...");
+                // Actual OTP stealing ke liye NotificationListenerService use karna chahiye
+                // Ye sirf simulation hai
+                break;
         }
     }
 
-    // --- TERMUX INTEGRATION ---
     void tryConnectTermux() {
         Executors.newSingleThreadExecutor().execute(() -> {
             try {
@@ -259,7 +260,6 @@ public class MiyaService extends Service {
         }
     }
 
-    // --- HELPER UI UPDATES ---
     void updateStatus(final String text) {
         ui.post(() -> {
             if (web != null) {

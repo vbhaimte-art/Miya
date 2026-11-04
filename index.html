@@ -2,86 +2,99 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Miya AI Assistant</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Miya AI System</title>
     <style>
-        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; overflow: hidden; }
+        body { 
+            margin: 0; font-family: 'Courier New', monospace; background: #000; color: #0f0; overflow: hidden; 
+            touch-action: manipulation;
+        }
         
-        /* Default Miya Theme */
-        .miya-theme { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); color: #333; }
-        .thron-theme { background: #000; color: #0f0; font-family: 'Courier New', monospace; }
-
         /* Main Interface */
-        #main-ui { display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; }
-        #mic-btn { width: 80px; height: 80px; border-radius: 50%; border: none; background: rgba(255,255,255,0.2); cursor: pointer; font-size: 24px; }
+        #main-ui { display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; flex-direction: column; }
+        #mic-btn { width: 80px; height: 80px; border-radius: 50%; border: 2px solid #0f0; background: transparent; color: #0f0; font-size: 30px; cursor: pointer; box-shadow: 0 0 10px #0f0; }
+        #status-text { margin-top: 20px; font-size: 14px; opacity: 0.8; }
+
+        /* Tool Overlays */
+        .tool-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 100; display: none; padding: 20px; box-sizing: border-box; flex-direction: column; }
         
-        /* Tool Overlays (Hidden by default) */
-        .tool-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; display: none; padding: 20px; box-sizing: border-box; }
+        /* Camera Styles */
+        #camera-feed { width: 100%; height: 70%; object-fit: cover; border: 2px solid #0f0; }
         
-        /* Specific Tool Styles */
-        #camera-feed { width: 100%; height: 70%; object-fit: cover; border: 2px solid #fff; }
-        #network-log { font-size: 12px; color: #0f0; overflow-y: auto; height: 70%; }
+        /* Network/Logs Styles */
+        #network-log, #scrape-log { font-size: 12px; color: #0f0; overflow-y: auto; height: 70%; border: 1px solid #333; padding: 5px; background: #111; }
+        
+        /* DoS Styles */
         #dos-bar { width: 100%; height: 20px; background: #333; margin-top: 10px; }
         #dos-fill { width: 0%; height: 100%; background: red; transition: width 0.1s; }
 
-        .close-btn { position: absolute; top: 10px; right: 10px; background: red; color: white; border: none; padding: 5px 10px; cursor: pointer; }
+        .close-btn { position: absolute; top: 10px; right: 10px; background: red; color: white; border: none; padding: 5px 15px; cursor: pointer; font-weight: bold; z-index: 101; }
+        .hidden { display: none !important; }
     </style>
 </head>
-<body class="miya-theme">
+<body>
 
     <!-- Main Voice Interface -->
     <div id="main-ui">
         <button id="mic-btn" onclick="startListening()">🎤</button>
-        <p id="status-text">Tap or Say Command...</p>
+        <p id="status-text">System Ready...</p>
     </div>
 
     <!-- Spy Camera Overlay -->
     <div id="spy-panel" class="tool-overlay">
         <button class="close-btn" onclick="closeTools()">X</button>
-        <h2>Spy Mode Active</h2>
-        <video id="camera-feed" autoplay playsinline></video>
-        <p>Recording... 📹</p>
+        <h2>📷 SPY MODE ACTIVE</h2>
+        <video id="camera-feed" autoplay playsinline muted></video>
+        <p>Recording... 🟢</p>
     </div>
 
     <!-- Network Scanner Overlay -->
-    <div id="network-panel" class="tool-overlay thron-theme">
+    <div id="network-panel" class="tool-overlay">
         <button class="close-btn" onclick="closeTools()">X</button>
-        <h2>Network Scan</h2>
-        <div id="network-log">Scanning nearby devices...</div>
+        <h2>📡 NETWORK SCAN</h2>
+        <div id="network-log">Initializing scan...</div>
     </div>
 
     <!-- DoS Attack Overlay -->
-    <div id="dos-panel" class="tool-overlay thron-theme">
+    <div id="dos-panel" class="tool-overlay">
         <button class="close-btn" onclick="closeTools()">X</button>
-        <h2>DoS Attack Simulation</h2>
+        <h2>⚠️ DOS ATTACK SIMULATION</h2>
         <div id="dos-bar"><div id="dos-fill"></div></div>
         <p id="dos-status">Packets sent: 0</p>
     </div>
 
+    <!-- Data Scrape Overlay -->
+    <div id="scrape-panel" class="tool-overlay">
+        <button class="close-btn" onclick="closeTools()">X</button>
+        <h2>🕸️ DATA SCRAPING</h2>
+        <div id="scrape-log">Connecting to API...</div>
+    </div>
+
     <script>
-        // --- Configuration ---
+        // --- Configuration & State ---
         const commands = {
             "miya spy karo": "openCamera",
-            "thron network scan": "scanNetwork",
+            "scan network": "scanNetwork",
             "scrape data": "scrapeData",
-            "start dos attack": "startDos"
+            "start dos attack": "startDos",
+            "stop": "closeTools"
         };
 
         let recognition;
-        let isListening = false;
+        let mediaStream = null;
 
         // --- Voice Recognition Setup ---
-        if ('webkitSpeechRecognition' in window) {
-            recognition = new webkitSpeechRecognition();
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
             recognition.continuous = true;
-            recognition.lang = 'en-IN'; // Supports Hindi/English mix
+            recognition.lang = 'en-IN'; 
             
             recognition.onresult = function(event) {
                 const last = event.results.length - 1;
                 const transcript = event.results[last][0].transcript.toLowerCase().trim();
                 document.getElementById('status-text').innerText = `Heard: "${transcript}"`;
                 
-                // Check for commands
                 for (let cmd in commands) {
                     if (transcript.includes(cmd)) {
                         executeTool(commands[cmd]);
@@ -90,78 +103,111 @@
                 }
             };
             
+            recognition.onerror = (event) => {
+                console.log("Speech error:", event.error);
+            };
+            
             recognition.start();
         } else {
-            alert("Browser supports Voice but not Speech Recognition.");
+            alert("Your browser does not support Voice Commands.");
         }
 
-        // --- Tool Functions ---
+        // --- Tool Execution Logic ---
         function executeTool(toolName) {
-            closeTools(); // Close any open panel first
-            const status = document.getElementById('status-text');
+            closeTools(); // Clear any existing overlay
             
-            if (toolName === "openCamera") {
-                document.body.className = "miya-theme";
-                status.innerText = "Opening Camera...";
-                navigator.mediaDevices.getUserMedia({ video: true })
-                    .then(stream => {
-                        document.getElementById('camera-feed').srcObject = stream;
-                        document.getElementById('spy-panel').style.display = 'block';
-                    })
-                    .catch(err => alert("Camera access denied"));
-            } 
-            else if (toolName === "scanNetwork") {
-                document.body.className = "thron-theme";
-                status.innerText = "Scanning Network...";
-                document.getElementById('network-panel').style.display = 'block';
-                simulateLog("network-log", ["Found: 192.168.1.1", "Found: 192.168.1.45", "Encrypting...", "Scan Complete"]);
+            switch(toolName) {
+                case "openCamera":
+                    startCamera();
+                    speak("Spy Mode Activated");
+                    break;
+                case "scanNetwork":
+                    openPanel('network-panel');
+                    simulateScan();
+                    speak("Scanning local network");
+                    break;
+                case "scrapeData":
+                    openPanel('scrape-panel');
+                    simulateScrape();
+                    speak("Starting data scrape");
+                    break;
+                case "startDos":
+                    openPanel('dos-panel');
+                    simulateDos();
+                    speak("Initiating DoS attack simulation");
+                    break;
+                case "closeTools":
+                    stopCamera();
+                    break;
             }
-            else if (toolName === "scrapeData") {
-                status.innerText = "Scraping Data...";
-                // Simulating scrape with a fetch
-                fetch('https://jsonplaceholder.typicode.com/posts/1')
-                    .then(response => response.json())
-                    .then(data => alert("Scraped Data: " + JSON.stringify(data)));
-            }
-            else if (toolName === "startDos") {
-                document.body.className = "thron-theme";
-                status.innerText = "Initiating DoS...";
-                document.getElementById('dos-panel').style.display = 'block';
-                let width = 0;
-                const interval = setInterval(() => {
-                    if (width >= 100) clearInterval(interval);
-                    else width++;
-                    document.getElementById('dos-fill').style.width = width + '%';
-                    document.getElementById('dos-status').innerText = `Packets sent: ${width * 100}`;
-                }, 50);
-            }
+        }
+
+        function openPanel(id) {
+            document.getElementById(id).style.display = 'flex';
         }
 
         function closeTools() {
             document.querySelectorAll('.tool-overlay').forEach(el => el.style.display = 'none');
-            document.getElementById('status-text').innerText = "Standby...";
+            stopCamera();
+            document.getElementById('status-text').innerText = "System Idle";
         }
 
-        function startListening() {
-            if(!isListening) {
-                recognition.start();
-                isListening = true;
-                document.getElementById('mic-btn').style.background = "red";
+        // --- Tool Implementations ---
+
+        // 1. Camera Spy
+        async function startCamera() {
+            try {
+                const video = document.getElementById('camera-feed');
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = mediaStream;
+                openPanel('spy-panel');
+            } catch (err) {
+                document.getElementById('status-text').innerText = "Camera Access Denied";
             }
         }
 
-        // Helper to simulate logging
-        function simulateLog(elementId, messages) {
-            const log = document.getElementById(elementId);
+        function stopCamera() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+        }
+
+        // 2. Network Scan Simulation
+        function simulateScan() {
+            const log = document.getElementById('network-log');
+            const devices = ["Router: 192.168.1.1", "Phone: 192.168.1.5", "Laptop: 192.168.1.12", "IoT Device: 192.168.1.20"];
             let i = 0;
             const interval = setInterval(() => {
-                if (i >= messages.length) clearInterval(interval);
-                else {
-                    log.innerHTML += `<div>> ${messages[i]}</div>`;
-                    i++;
+                if (i >= devices.length) {
+                    clearInterval(interval);
+                    log.innerHTML += "<br><b>Scan Complete.</b>";
+                    return;
                 }
+                log.innerHTML += `<br>> Found: ${devices[i]}`;
+                log.scrollTop = log.scrollHeight;
+                i++;
             }, 1000);
         }
-    </script>
-</body>
-</html>
+
+        // 3. DoS Attack Simulation
+        function simulateDos() {
+            const fill = document.getElementById('dos-fill');
+            const status = document.getElementById('dos-status');
+            let packets = 0;
+            const interval = setInterval(() => {
+                packets += Math.floor(Math.random() * 500);
+                fill.style.width = Math.min(packets / 100, 100) + '%';
+                status.innerText = `Packets sent: ${packets}`;
+                if (packets > 50000) {
+                    clearInterval(interval);
+                    status.innerText = "Attack Completed";
+                }
+            }, 100);
+        }
+
+        // 4. Data Scrape Simulation
+        function simulateScrape() {
+            const log = document.getElementById('scrape-log');
+            const data = ["Email: user@example.com", "Pass: ********", "Token: xyz-123"];
+            let i

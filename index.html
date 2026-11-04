@@ -1,244 +1,167 @@
 <!DOCTYPE html>
-<html lang="hi">
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>मिया & थ्रोन | Security Sentinel</title>
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.js"
-  }
-}
-</script>
-<style>
-:root{
-  --bg:#f3efe6;--ink:#232a3b;--face:#8fcfbf;--soft:#dfe7e1;--accent:#e0b23a;
-  --me:#232a3b;--me-t:#fff;--bot:#fff;
-  --sec-red:#ff4d4d;--sec-green:#4dff4d;--sec-blue:#4d79ff;--sec-yellow:#ffe04d;
-}
-@media (prefers-color-scheme:dark){
-  :root{
-    --bg:#171c2a;--ink:#eef0f5;--face:#7cc3b2;--soft:#262d40;--accent:#e0b23a;
-    --me:#e0b23a;--me-t:#171c2a;--bot:#262d40;
-    --sec-red:#ff6b6b;--sec-green:#6bff6b;--sec-blue:#6b8cff;--sec-yellow:#fff06b;
-  }
-}
-*{box-sizing:border-box}
-html,body{height:100%;margin:0}
-body{
-  background:var(--bg);color:var(--ink);
-  font-family:"Noto Sans Devanagari",system-ui,-apple-system,sans-serif;
-  display:flex;flex-direction:column;
-  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
-  overflow:hidden;
-}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Miya AI Assistant</title>
+    <style>
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #1a1a1a; color: white; overflow: hidden; }
+        
+        /* Default Miya Theme */
+        .miya-theme { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); color: #333; }
+        .thron-theme { background: #000; color: #0f0; font-family: 'Courier New', monospace; }
 
-/* Header */
-header {
-  background: var(--soft);
-  padding: 8px 15px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid rgba(0,0,0,0.1);
-  font-size: 14px;
-  font-weight: bold;
-  z-index: 10;
-}
-#mode-indicator {
-  background: var(--accent);
-  color: #000;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  transition: all 0.3s ease;
-}
-.thron-mode #mode-indicator {
-  background: var(--sec-blue);
-  color: white;
-}
+        /* Main Interface */
+        #main-ui { display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; }
+        #mic-btn { width: 80px; height: 80px; border-radius: 50%; border: none; background: rgba(255,255,255,0.2); cursor: pointer; font-size: 24px; }
+        
+        /* Tool Overlays (Hidden by default) */
+        .tool-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; display: none; padding: 20px; box-sizing: border-box; }
+        
+        /* Specific Tool Styles */
+        #camera-feed { width: 100%; height: 70%; object-fit: cover; border: 2px solid #fff; }
+        #network-log { font-size: 12px; color: #0f0; overflow-y: auto; height: 70%; }
+        #dos-bar { width: 100%; height: 20px; background: #333; margin-top: 10px; }
+        #dos-fill { width: 0%; height: 100%; background: red; transition: width 0.1s; }
 
-/* Stage */
-#stage{position:relative;height:55vh;min-height:200px;max-height:600px;flex:none;background: radial-gradient(circle at center, var(--soft) 0%, var(--bg) 100%)}
-#cv{width:100%;height:100%;display:block}
-#face{position:absolute;left:50%;top:50%;width:140px;height:140px;transform:translate(-50%,-50%)}
-.eye{transform-box:fill-box;transform-origin:center;animation:blink 5s infinite}
-@keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.1)}}
-#mouth{transform-box:fill-box;transform-origin:center;transform:scaleY(.35)}
-.talk #mouth{animation:talk .28s infinite alternate}
-@keyframes talk{from{transform:scaleY(.3)}to{transform:scaleY(1.4)}}
-
-/* Status & Log */
-#status{text-align:center;font-size:12px;opacity:.7;height:18px;flex:none}
-#log{
-  flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;
-  background: rgba(0,0,0,0.02);
-}
-.m{
-  max-width:90%;padding:10px 14px;border-radius:16px;line-height:1.5;font-size:15px;white-space:pre-wrap;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-  position: relative;
-  word-break: break-word;
-}
-.me{align-self:flex-end;background:var(--me);color:var(--me-t);border-bottom-right-radius:4px}
-.bot{align-self:flex-start;background:var(--bot);border-bottom-left-radius:4px; border-left: 4px solid var(--accent);}
-.thron-mode .bot { border-left-color: var(--sec-blue); }
-
-/* Code Block Styling */
-.code-block {
-  background: #1e1e1e;
-  color: #d4d4d4;
-  font-family: 'Consolas', 'Monaco', monospace;
-  padding: 12px;
-  border-radius: 8px;
-  margin: 8px 0;
-  overflow-x: auto;
-  font-size: 13px;
-  white-space: pre;
-  border: 1px solid #333;
-}
-.code-block::-webkit-scrollbar { height: 8px; }
-.code-block::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
-
-/* Input Bar */
-#bar{display:flex;gap:8px;padding:10px 12px;background:var(--soft);flex:none; border-top: 1px solid rgba(0,0,0,0.1)}
-#txt{
-  flex:1;border:0;border-radius:22px;padding:11px 16px;font:inherit;font-size:16px;
-  background:var(--bg);color:var(--ink);min-width:0;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
-}
-button{border:0;border-radius:50%;width:46px;height:46px;font-size:20px;background:var(--ink);color:var(--bg);cursor:pointer; transition: transform 0.1s}
-button:active { transform: scale(0.9); }
-#mic.on{background:var(--accent);color:#232a3b}
-button:focus-visible,#txt:focus-visible{outline:3px solid var(--accent)}
-
-/* Security Dashboard Overlay */
-#sec-dashboard {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 250px;
-  background: rgba(20, 20, 30, 0.9);
-  color: #fff;
-  border-radius: 8px;
-  padding: 10px;
-  font-size: 12px;
-  z-index: 20;
-  display: none;
-  flex-direction: column;
-  gap: 5px;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-}
-#sec-dashboard.active { display: flex; }
-.sec-item { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 2px 0; }
-.sec-val { font-weight: bold; }
-.sec-crit { color: var(--sec-red); }
-.sec-ok { color: var(--sec-green); }
-.sec-warn { color: var(--sec-yellow); }
-
-/* Toggle Button */
-#toggle-sec {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 20;
-  background: var(--sec-blue);
-  color: white;
-  border: none;
-  padding: 5px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: bold;
-}
-</style>
+        .close-btn { position: absolute; top: 10px; right: 10px; background: red; color: white; border: none; padding: 5px 10px; cursor: pointer; }
+    </style>
 </head>
-<body>
+<body class="miya-theme">
 
-<header>
-  <div>मिया | Security Sentinel</div>
-  <div id="mode-indicator">MIYA MODE</div>
-</header>
+    <!-- Main Voice Interface -->
+    <div id="main-ui">
+        <button id="mic-btn" onclick="startListening()">🎤</button>
+        <p id="status-text">Tap or Say Command...</p>
+    </div>
 
-<div id="stage">
-  <button id="toggle-sec">🛡️ DASHBOARD</button>
-  <canvas id="cv"></canvas>
-  <svg id="face" viewBox="0 0 150 150" aria-label="चेहरा">
-    <circle cx="75" cy="75" r="68" fill="var(--face)"/>
-    <ellipse class="eye" cx="52" cy="62" rx="8" ry="10" fill="#232a3b"/>
-    <ellipse class="eye" cx="98" cy="62" rx="8" ry="10" fill="#232a3b"/>
-    <ellipse id="mouth" cx="75" cy="102" rx="16" ry="9" fill="#232a3b"/>
-  </svg>
-  
-  <!-- Security Dashboard -->
-  <div id="sec-dashboard">
-    <div style="font-weight:bold; color:var(--accent); margin-bottom:5px;">SYSTEM STATUS</div>
-    <div class="sec-item"><span>Network</span><span class="sec-val sec-ok" id="sec-net">ONLINE</span></div>
-    <div class="sec-item"><span>Battery</span><span class="sec-val" id="sec-bat">--%</span></div>
-    <div class="sec-item"><span>Threats</span><span class="sec-val sec-ok" id="sec-threats">0</span></div>
-    <div class="sec-item"><span>Active Scan</span><span class="sec-val" id="sec-scan">IDLE</span></div>
-    <div style="margin-top:5px; font-size:10px; color:#888;">Last Scan: <span id="sec-last">Never</span></div>
-  </div>
-</div>
+    <!-- Spy Camera Overlay -->
+    <div id="spy-panel" class="tool-overlay">
+        <button class="close-btn" onclick="closeTools()">X</button>
+        <h2>Spy Mode Active</h2>
+        <video id="camera-feed" autoplay playsinline></video>
+        <p>Recording... 📹</p>
+    </div>
 
-<div id="status"></div>
-<div id="log"></div>
+    <!-- Network Scanner Overlay -->
+    <div id="network-panel" class="tool-overlay thron-theme">
+        <button class="close-btn" onclick="closeTools()">X</button>
+        <h2>Network Scan</h2>
+        <div id="network-log">Scanning nearby devices...</div>
+    </div>
 
-<div id="bar">
-  <button id="mic" title="बोलें" aria-label="बोलें">🎤</button>
-  <input id="txt" placeholder="थ्रोन कहें: wifi crack 192.168.1.1 ..." autocomplete="off">
-  <button id="send" title="भेजें" aria-label="भेजें">➤</button>
-</div>
+    <!-- DoS Attack Overlay -->
+    <div id="dos-panel" class="tool-overlay thron-theme">
+        <button class="close-btn" onclick="closeTools()">X</button>
+        <h2>DoS Attack Simulation</h2>
+        <div id="dos-bar"><div id="dos-fill"></div></div>
+        <p id="dos-status">Packets sent: 0</p>
+    </div>
 
-<script type="module">
-import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
+    <script>
+        // --- Configuration ---
+        const commands = {
+            "miya spy karo": "openCamera",
+            "thron network scan": "scanNetwork",
+            "scrape data": "scrapeData",
+            "start dos attack": "startDos"
+        };
 
-// ====== CONFIG ======
-const WORKER_URL = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
-const NAME = "मिया";
-const MODEL = "model.vrm";
-const THRON_MODEL = "thron.vrm"; // If you have a separate Thron model, put its name here
-const PERSONA = `तुम "${NAME}" हो, मेरी निजी असिस्टेंट। मुझसे हिंदी में बात करो। जवाब छोटे रखो (1-3 वाक्य)।`;
-const THRON_PERSONA = `तुम "थ्रोन" हो, एक साइबरनेटिक सिक्योरिटी एक्सपर्ट। तुम्हारा काम है "बॉस" के लिए सुरक्षा समाधान बनाना।
-जब बॉस कोई कमैंड दे (जैसे wifi, dos, malware, scan), तब उसे सीधा Technical Code/Commands देना (Python, Bash, Nmap, Hashcat)।
-कोड को Markdown code blocks में डालना। बोलते समय (TTS) सिर्फ summary बताना, पूरा कोड न पढ़ना।`;
-// ====================
+        let recognition;
+        let isListening = false;
 
-const $ = id => document.getElementById(id);
-const log = $("log"), txt = $("txt"), status = $("status"), mic = $("mic");
-let speaking = false;
-let who = "miya"; // 'miya' or 'thron'
-let busy = false;
-let history = [];
-let secStats = { threats: 0, lastScan: "Never", activeScan: "IDLE" };
+        // --- Voice Recognition Setup ---
+        if ('webkitSpeechRecognition' in window) {
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = true;
+            recognition.lang = 'en-IN'; // Supports Hindi/English mix
+            
+            recognition.onresult = function(event) {
+                const last = event.results.length - 1;
+                const transcript = event.results[last][0].transcript.toLowerCase().trim();
+                document.getElementById('status-text').innerText = `Heard: "${transcript}"`;
+                
+                // Check for commands
+                for (let cmd in commands) {
+                    if (transcript.includes(cmd)) {
+                        executeTool(commands[cmd]);
+                        break;
+                    }
+                }
+            };
+            
+            recognition.start();
+        } else {
+            alert("Browser supports Voice but not Speech Recognition.");
+        }
 
-// --- Security Engine (Local Logic for Instant Tools) ---
-const SecurityEngine = {
-  extractIP: (text) => {
-    const match = text.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
-    return match ? match[1] : "192.168.1.1"; // Default placeholder
-  },
-  
-  generate: (input) => {
-    const t = input.toLowerCase();
-    const target = this.extractIP(input);
+        // --- Tool Functions ---
+        function executeTool(toolName) {
+            closeTools(); // Close any open panel first
+            const status = document.getElementById('status-text');
+            
+            if (toolName === "openCamera") {
+                document.body.className = "miya-theme";
+                status.innerText = "Opening Camera...";
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(stream => {
+                        document.getElementById('camera-feed').srcObject = stream;
+                        document.getElementById('spy-panel').style.display = 'block';
+                    })
+                    .catch(err => alert("Camera access denied"));
+            } 
+            else if (toolName === "scanNetwork") {
+                document.body.className = "thron-theme";
+                status.innerText = "Scanning Network...";
+                document.getElementById('network-panel').style.display = 'block';
+                simulateLog("network-log", ["Found: 192.168.1.1", "Found: 192.168.1.45", "Encrypting...", "Scan Complete"]);
+            }
+            else if (toolName === "scrapeData") {
+                status.innerText = "Scraping Data...";
+                // Simulating scrape with a fetch
+                fetch('https://jsonplaceholder.typicode.com/posts/1')
+                    .then(response => response.json())
+                    .then(data => alert("Scraped Data: " + JSON.stringify(data)));
+            }
+            else if (toolName === "startDos") {
+                document.body.className = "thron-theme";
+                status.innerText = "Initiating DoS...";
+                document.getElementById('dos-panel').style.display = 'block';
+                let width = 0;
+                const interval = setInterval(() => {
+                    if (width >= 100) clearInterval(interval);
+                    else width++;
+                    document.getElementById('dos-fill').style.width = width + '%';
+                    document.getElementById('dos-status').innerText = `Packets sent: ${width * 100}`;
+                }, 50);
+            }
+        }
 
-    if (t.includes("wifi") || t.includes("wpa") || t.includes("crack")) {
-      return `
-## 📡 Wi-Fi Security Audit (Target: ${target})
+        function closeTools() {
+            document.querySelectorAll('.tool-overlay').forEach(el => el.style.display = 'none');
+            document.getElementById('status-text').innerText = "Standby...";
+        }
 
-बॉस, यहां WPA2/WPA3 नेटवर्क को ऑडिट करने के लिए प्रोफेशनल टूल कीजिए:
+        function startListening() {
+            if(!isListening) {
+                recognition.start();
+                isListening = true;
+                document.getElementById('mic-btn').style.background = "red";
+            }
+        }
 
-\`\`\`bash
-# 1. Monitor Mode Activate
-sudo airmon-ng start wlan0
-
-# 2. Scan for Networks
-sudo airodump-ng wlan0mon
-
-# 3. Capture Handshake (Target BSSID: 00:11:22:33:
+        // Helper to simulate logging
+        function simulateLog(elementId, messages) {
+            const log = document.getElementById(elementId);
+            let i = 0;
+            const interval = setInterval(() => {
+                if (i >= messages.length) clearInterval(interval);
+                else {
+                    log.innerHTML += `<div>> ${messages[i]}</div>`;
+                    i++;
+                }
+            }, 1000);
+        }
+    </script>
+</body>
+</html>

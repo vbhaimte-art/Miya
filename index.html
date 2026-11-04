@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Miya AI System</title>
+    <title>Miya AI System v2</title>
     <style>
         body { 
             margin: 0; font-family: 'Courier New', monospace; background: #000; color: #0f0; overflow: hidden; 
@@ -11,17 +11,23 @@
         }
         
         /* Main Interface */
-        #main-ui { display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; flex-direction: column; }
-        #mic-btn { width: 80px; height: 80px; border-radius: 50%; border: 2px solid #0f0; background: transparent; color: #0f0; font-size: 30px; cursor: pointer; box-shadow: 0 0 10px #0f0; }
-        #status-text { margin-top: 20px; font-size: 14px; opacity: 0.8; }
+        #main-ui { display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; flex-direction: column; padding: 20px; box-sizing: border-box; }
+        
+        /* Control Buttons (For Manual Testing if Voice Fails) */
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 300px; margin-top: 20px; }
+        .ctrl-btn { background: #222; border: 1px solid #0f0; color: #0f0; padding: 15px; font-size: 14px; cursor: pointer; border-radius: 5px; }
+        .ctrl-btn:active { background: #0f0; color: #000; }
+
+        #mic-btn { width: 80px; height: 80px; border-radius: 50%; border: 2px solid #0f0; background: transparent; color: #0f0; font-size: 30px; cursor: pointer; box-shadow: 0 0 10px #0f0; margin-bottom: 20px; }
+        #status-text { margin-top: 20px; font-size: 14px; opacity: 0.8; word-break: break-all; }
 
         /* Tool Overlays */
         .tool-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 100; display: none; padding: 20px; box-sizing: border-box; flex-direction: column; }
         
         /* Camera Styles */
-        #camera-feed { width: 100%; height: 70%; object-fit: cover; border: 2px solid #0f0; }
+        #camera-feed { width: 100%; height: 70%; object-fit: cover; border: 2px solid #0f0; background: #111; }
         
-        /* Network/Logs Styles */
+        /* Logs */
         #network-log, #scrape-log { font-size: 12px; color: #0f0; overflow-y: auto; height: 70%; border: 1px solid #333; padding: 5px; background: #111; }
         
         /* DoS Styles */
@@ -29,15 +35,22 @@
         #dos-fill { width: 0%; height: 100%; background: red; transition: width 0.1s; }
 
         .close-btn { position: absolute; top: 10px; right: 10px; background: red; color: white; border: none; padding: 5px 15px; cursor: pointer; font-weight: bold; z-index: 101; }
-        .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
-    <!-- Main Voice Interface -->
+    <!-- Main Interface -->
     <div id="main-ui">
         <button id="mic-btn" onclick="startListening()">🎤</button>
-        <p id="status-text">System Ready...</p>
+        <p id="status-text">System Ready... Tap Mic or Use Buttons Below</p>
+        
+        <!-- Manual Controls (Fallback for Voice) -->
+        <div class="controls">
+            <button class="ctrl-btn" onclick="executeTool('openCamera')">📷 Spy Cam</button>
+            <button class="ctrl-btn" onclick="executeTool('scanNetwork')">📡 Scan Net</button>
+            <button class="ctrl-btn" onclick="executeTool('startDos')">⚠️ DoS Attack</button>
+            <button class="ctrl-btn" onclick="executeTool('scrapeData')">🕸️ Scrape Data</button>
+        </div>
     </div>
 
     <!-- Spy Camera Overlay -->
@@ -71,7 +84,7 @@
     </div>
 
     <script>
-        // --- Configuration & State ---
+        // --- Configuration ---
         const commands = {
             "miya spy karo": "openCamera",
             "scan network": "scanNetwork",
@@ -84,7 +97,12 @@
         let mediaStream = null;
 
         // --- Voice Recognition Setup ---
-        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        function startListening() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                alert("Voice not supported on this browser. Use Chrome.");
+                return;
+            }
+            
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SpeechRecognition();
             recognition.continuous = true;
@@ -103,14 +121,11 @@
                 }
             };
             
-            recognition.onerror = (event) => {
-                console.log("Speech error:", event.error);
-            };
-            
             recognition.start();
-        } else {
-            alert("Your browser does not support Voice Commands.");
         }
+
+        // Start listening automatically on load too
+        window.onload = startListening;
 
         // --- Tool Execution Logic ---
         function executeTool(toolName) {
@@ -162,7 +177,7 @@
                 video.srcObject = mediaStream;
                 openPanel('spy-panel');
             } catch (err) {
-                document.getElementById('status-text').innerText = "Camera Access Denied";
+                document.getElementById('status-text').innerText = "Camera Access Denied. Check Permissions.";
             }
         }
 
@@ -210,4 +225,26 @@
         function simulateScrape() {
             const log = document.getElementById('scrape-log');
             const data = ["Email: user@example.com", "Pass: ********", "Token: xyz-123"];
-            let i
+            let i = 0;
+            const interval = setInterval(() => {
+                if (i >= data.length) {
+                    clearInterval(interval);
+                    log.innerHTML += "<br><b>Scraping Finished.</b>";
+                    return;
+                }
+                log.innerHTML += `<br>> Extracted: ${data[i]}`;
+                log.scrollTop = log.scrollHeight;
+                i++;
+            }, 800);
+        }
+
+        // Helper: Text to Speech
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+    </script>
+</body>
+</html>

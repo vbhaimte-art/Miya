@@ -9,15 +9,23 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.Icon;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.WindowManager;
@@ -34,44 +42,32 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.Socket;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class MiyaService extends Service {
-    // --- CONFIGURATION ---
-    static final String WORKER = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
-    static final String TOKEN = "miya@vaibhav";
-    
-    // Termux Connection Settings
-    static final String TERMUX_HOST = "localhost";
-    static final int TERMUX_PORT = 5555;
-    boolean termuxConnected = false;
-    long lastDailyCheck = 0;
-    static final long DAILY_CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours in ms
 
-    // Persona: Miya ab Cybersecurity Expert hai
-    static final String PERSONA = "तुम 'मिया' हो, एक एडवैंस्ड सिक्योरिटی असिस्टेंट। " +
-        "तुम्हारा काम है user के network, Wi-Fi, aur systems को secure रखना। " +
-        "जब user कोई command दे, तो उसे technical context में समझो। " +
-        "Agar user 'scan', 'crack', 'phish', 'dos', 'brute', 'wifi' के शब्द use करता है, " +
-        "तो उन्हें network security tools (Nmap, Hydra, Aircrack-ng, hping3) के context में interpret करो। " +
-        "Tumhe output SIRF JSON format में देना है जिसमें ये keys हों: " +
-        "1. 'action': (RECON, BRUTE_FORCE, WIFI, DOS, PHISH, MALWARE, ANALYZE, CHAT) " +
-        "2. 'target': (IP, Domain, या BSSID) " +
-        "3. 'options': (Flags जैसे -sV, -t 64, या empty) " +
-        "4. 'reasoning': (एक छोटा सा explanation in Hindi/English that Miya will speak) " +
-        "Agar user general बात करे, तो action 'CHAT' रखो और 'reasoning' में friendly reply दो। " +
-        "Example: User says 'scan my router'. Output: {\"action\":\"RECON\",\"target\":\"192.168.1.1\",\"options\":\"-sV\",\"reasoning\":\"Router को scan कर रही हूँ, open ports देख रही हूँ.\"}";
+    // --- CONFIGURATION ---
+    static final String WORKER_URL = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
+    static final String TERMUX_HOST = "127.0.0.1";
+    static final int TERMUX_PORT = 5555;
+    
+    // Personas
+    static final String PERSONA_MIYA = "तुम 'मिया' हो, मेरी निजी असिस्टेंट। मुझसे हिंदी में बात करो। जवाब छोटे रखो (1-3 वाक्य)।";
+    static final String PERSONA_THRON = "तुम 'थ्रोन' हो, एक साइबरनेटिक सिक्योरिटी एक्सपर्ट। तुम्हारा काम है 'बॉस' के लिए सुरक्षा समाधान बनाना। " +
+        "जब बॉस कोई कमैंड दे (जैसे wifi, dos, malware, scan), तब उसे सीधा Technical Code/Commands देना (Python, Bash, Nmap, Hashcat)। " +
+        "कोड को Markdown code blocks में डालना। बोलते समय (TTS) सिर्फ summary बताना, पूरा कोड न पढ़ना। " +
+        "हमेशा JSON format में रिस्पॉन्स देना: {\"action\": \"TYPE\", \"target\": \"TARGET\", \"options\": \"FLAGS\", \"reasoning\": \"SPOKEN_REPLY\"}";
 
     // --- STATE VARIABLES ---
     WindowManager wm;
@@ -84,6 +80,13 @@ public class MiyaService extends Service {
     boolean listening = false;
     final List<JSONObject> history = new ArrayList<>();
     final ExecutorService net = Executors.newSingleThreadExecutor();
+    
+    // Termux State
+    boolean termuxConnected = false;
+    Socket termuxSocket;
+    OutputStream termuxOut;
+
+    // UI Drag State
     float downX, downY;
     int startX, startY;
     boolean moved;
@@ -99,6 +102,14 @@ public class MiyaService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
+        
+        // Check Overlay Permission
+        if (!Settings.canDrawOverlays(this)) {
+            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()));
+            startActivity(i);
+            return START_STICKY;
+        }
+
         if (web == null) {
             loadHistory();
             startFg();
@@ -106,6 +117,7 @@ public class MiyaService extends Service {
             startRoam();
             initTts();
             startWatchdog();
+            tryConnectTermux();
         }
         return START_STICKY;
     }
@@ -146,6 +158,7 @@ public class MiyaService extends Service {
                 return loader.shouldInterceptRequest(r.getUrl());
             }
         });
+        // Load the HTML file from assets folder
         web.loadUrl("https://appassets.androidplatform.net/assets/avatar.html");
 
         lp = new WindowManager.LayoutParams(
@@ -289,28 +302,32 @@ public class MiyaService extends Service {
         }
     }
 
-    // --- CORE LOGIC: ASK THRON ---
+    // --- CORE LOGIC: ASK ---
     void ask(final String text) {
+        if (busy) return;
         busy = true;
         js("setStatus('Cyber-Analysis चालू है...')");
+        
+        // Determine Persona based on prefix
+        final boolean isThron = text.toLowerCase().startsWith("thron") || text.toLowerCase().startsWith("थ्रोन");
+        final String cleanText = isThron ? (text.startsWith("thron") ? text.substring(5) : text.substring(4)).trim() : text;
+
         synchronized (history) {
             history.add(msg("user", text));
             saveHistory();
         }
+        
         net.execute(() -> {
-            String reply;
-            try {
-                reply = callGemini();
-            } catch (Exception e) {
-                reply = "ERR:कनेक्शन में दिक्कत है।";
-            }
-            final String r = reply;
+            String rawResponse = callGemini(cleanText, isThron);
+            final String finalDisplay = processResponse(rawResponse, isThron);
+            final String spokenText = extractSpokenText(rawResponse, isThron);
+
             ui.post(() -> {
                 busy = false;
-                boolean err = r.startsWith("ERR:");
+                boolean err = finalDisplay.startsWith("ERR:");
                 
                 if (err) {
-                    final String shown = r.substring(4);
+                    final String shown = finalDisplay.substring(4);
                     synchronized (history) {
                         if (!history.isEmpty()) history.remove(history.size() - 1);
                         saveHistory();
@@ -318,6 +335,69 @@ public class MiyaService extends Service {
                     js("setText(" + JSONObject.quote(shown) + ")");
                     if (ttsReady) tts.speak(shown, TextToSpeech.QUEUE_FLUSH, null, "miya");
                 } else {
-                    // Parse JSON Response from Thron
-                    try {
-                        JSONObject cyberPlan
+                    synchronized (history) {
+                        history.add(msg("model", finalDisplay));
+                        saveHistory();
+                    }
+                    js("setText(" + JSONObject.quote(finalDisplay) + ")");
+                    if (ttsReady) tts.speak(spokenText, TextToSpeech.QUEUE_FLUSH, null, "miya");
+                }
+            });
+        });
+    }
+
+    // --- LLM CALL ---
+    String callGemini(String text, boolean isThron) {
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("systemInstruction", new JSONObject()
+                .put("parts", new JSONArray().put(new JSONObject()
+                    .put("text", isThron ? PERSONA_THRON : PERSONA_MIYA))));
+            
+            JSONArray contents = new JSONArray();
+            synchronized (history) {
+                for (JSONObject h : history) {
+                    contents.put(h);
+                }
+            }
+            payload.put("contents", contents);
+
+            URL url = new URL(WORKER_URL);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            
+            try (OutputStream os = conn.getOutputStream()) {
+                byte[] input = payload.toString().getBytes(StandardCharsets.UTF_8);
+                os.write(input, 0, input.length);
+            }
+
+            int responseCode = conn.getResponseCode();
+            if (responseCode == 200) {
+                BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
+                StringBuilder response = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) {
+                    response.append(line).append("\n");
+                }
+                br.close();
+                
+                // Parse Gemini Response
+                JSONObject data = new JSONObject(response.toString());
+                JSONArray candidates = data.getJSONArray("candidates");
+                if (candidates.length() > 0) {
+                    JSONObject content = candidates.getJSONObject(0).getJSONObject("content");
+                    JSONArray parts = content.getJSONArray("parts");
+                    StringBuilder fullText = new StringBuilder();
+                    for (int i = 0; i < parts.length(); i++) {
+                        fullText.append(parts.getJSONObject(i).getString("text"));
+                    }
+                    return fullText.toString();
+                }
+                return "ERR:कोई रिस्पॉन्स नहीं मिला।";
+            } else {
+                return "ERR:सर्वर त्रुटि " + responseCode;
+            }
+        } catch (Exception e) {
+            return "ERR:कनेक्शन में दिक्कत

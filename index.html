@@ -3,22 +3,66 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>मिया</title>
+<title>मिया & थ्रोन | Security Sentinel</title>
 <script type="importmap">
-{"imports":{
-"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-"three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-"three/examples/jsm/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-"@pixiv/three-vrm":"https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.js"
-}}
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.0/lib/three-vrm.module.js"
+  }
+}
 </script>
 <style>
-:root{--bg:#f3efe6;--ink:#232a3b;--face:#8fcfbf;--soft:#dfe7e1;--accent:#e0b23a;--me:#232a3b;--me-t:#fff;--bot:#fff}
-@media (prefers-color-scheme:dark){:root{--bg:#171c2a;--ink:#eef0f5;--face:#7cc3b2;--soft:#262d40;--accent:#e0b23a;--me:#e0b23a;--me-t:#171c2a;--bot:#262d40}}
+:root{
+  --bg:#f3efe6;--ink:#232a3b;--face:#8fcfbf;--soft:#dfe7e1;--accent:#e0b23a;
+  --me:#232a3b;--me-t:#fff;--bot:#fff;
+  --sec-red:#ff4d4d;--sec-green:#4dff4d;--sec-blue:#4d79ff;--sec-yellow:#ffe04d;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#171c2a;--ink:#eef0f5;--face:#7cc3b2;--soft:#262d40;--accent:#e0b23a;
+    --me:#e0b23a;--me-t:#171c2a;--bot:#262d40;
+    --sec-red:#ff6b6b;--sec-green:#6bff6b;--sec-blue:#6b8cff;--sec-yellow:#fff06b;
+  }
+}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--ink);font-family:"Noto Sans Devanagari",system-ui,-apple-system,sans-serif;display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
-#stage{position:relative;height:65vh;min-height:230px;max-height:700px;flex:none}
+body{
+  background:var(--bg);color:var(--ink);
+  font-family:"Noto Sans Devanagari",system-ui,-apple-system,sans-serif;
+  display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  overflow:hidden;
+}
+
+/* Header */
+header {
+  background: var(--soft);
+  padding: 8px 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(0,0,0,0.1);
+  font-size: 14px;
+  font-weight: bold;
+  z-index: 10;
+}
+#mode-indicator {
+  background: var(--accent);
+  color: #000;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  transition: all 0.3s ease;
+}
+.thron-mode #mode-indicator {
+  background: var(--sec-blue);
+  color: white;
+}
+
+/* Stage */
+#stage{position:relative;height:55vh;min-height:200px;max-height:600px;flex:none;background: radial-gradient(circle at center, var(--soft) 0%, var(--bg) 100%)}
 #cv{width:100%;height:100%;display:block}
 #face{position:absolute;left:50%;top:50%;width:140px;height:140px;transform:translate(-50%,-50%)}
 .eye{transform-box:fill-box;transform-origin:center;animation:blink 5s infinite}
@@ -26,34 +70,127 @@ body{background:var(--bg);color:var(--ink);font-family:"Noto Sans Devanagari",sy
 #mouth{transform-box:fill-box;transform-origin:center;transform:scaleY(.35)}
 .talk #mouth{animation:talk .28s infinite alternate}
 @keyframes talk{from{transform:scaleY(.3)}to{transform:scaleY(1.4)}}
-#status{text-align:center;font-size:13px;opacity:.7;height:20px;flex:none}
-#log{flex:1;overflow-y:auto;padding:10px 14px;display:flex;flex-direction:column;gap:8px}
-.m{max-width:85%;padding:9px 13px;border-radius:16px;line-height:1.5;font-size:16px;white-space:pre-wrap}
+
+/* Status & Log */
+#status{text-align:center;font-size:12px;opacity:.7;height:18px;flex:none}
+#log{
+  flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;
+  background: rgba(0,0,0,0.02);
+}
+.m{
+  max-width:90%;padding:10px 14px;border-radius:16px;line-height:1.5;font-size:15px;white-space:pre-wrap;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  position: relative;
+  word-break: break-word;
+}
 .me{align-self:flex-end;background:var(--me);color:var(--me-t);border-bottom-right-radius:4px}
-.bot{align-self:flex-start;background:var(--bot);border-bottom-left-radius:4px}
-#bar{display:flex;gap:8px;padding:10px 12px;background:var(--soft);flex:none}
-#txt{flex:1;border:0;border-radius:22px;padding:11px 16px;font:inherit;font-size:16px;background:var(--bg);color:var(--ink);min-width:0}
-button{border:0;border-radius:50%;width:46px;height:46px;font-size:20px;background:var(--ink);color:var(--bg);cursor:pointer}
+.bot{align-self:flex-start;background:var(--bot);border-bottom-left-radius:4px; border-left: 4px solid var(--accent);}
+.thron-mode .bot { border-left-color: var(--sec-blue); }
+
+/* Code Block Styling */
+.code-block {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Consolas', 'Monaco', monospace;
+  padding: 12px;
+  border-radius: 8px;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-size: 13px;
+  white-space: pre;
+  border: 1px solid #333;
+}
+.code-block::-webkit-scrollbar { height: 8px; }
+.code-block::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+
+/* Input Bar */
+#bar{display:flex;gap:8px;padding:10px 12px;background:var(--soft);flex:none; border-top: 1px solid rgba(0,0,0,0.1)}
+#txt{
+  flex:1;border:0;border-radius:22px;padding:11px 16px;font:inherit;font-size:16px;
+  background:var(--bg);color:var(--ink);min-width:0;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+}
+button{border:0;border-radius:50%;width:46px;height:46px;font-size:20px;background:var(--ink);color:var(--bg);cursor:pointer; transition: transform 0.1s}
+button:active { transform: scale(0.9); }
 #mic.on{background:var(--accent);color:#232a3b}
 button:focus-visible,#txt:focus-visible{outline:3px solid var(--accent)}
+
+/* Security Dashboard Overlay */
+#sec-dashboard {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 250px;
+  background: rgba(20, 20, 30, 0.9);
+  color: #fff;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+  z-index: 20;
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+}
+#sec-dashboard.active { display: flex; }
+.sec-item { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 2px 0; }
+.sec-val { font-weight: bold; }
+.sec-crit { color: var(--sec-red); }
+.sec-ok { color: var(--sec-green); }
+.sec-warn { color: var(--sec-yellow); }
+
+/* Toggle Button */
+#toggle-sec {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 20;
+  background: var(--sec-blue);
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: bold;
+}
 </style>
 </head>
 <body>
+
+<header>
+  <div>मिया | Security Sentinel</div>
+  <div id="mode-indicator">MIYA MODE</div>
+</header>
+
 <div id="stage">
-<canvas id="cv"></canvas>
-<svg id="face" viewBox="0 0 150 150" aria-label="चेहरा">
-<circle cx="75" cy="75" r="68" fill="var(--face)"/>
-<ellipse class="eye" cx="52" cy="62" rx="8" ry="10" fill="#232a3b"/>
-<ellipse class="eye" cx="98" cy="62" rx="8" ry="10" fill="#232a3b"/>
-<ellipse id="mouth" cx="75" cy="102" rx="16" ry="9" fill="#232a3b"/>
-</svg>
+  <button id="toggle-sec">🛡️ DASHBOARD</button>
+  <canvas id="cv"></canvas>
+  <svg id="face" viewBox="0 0 150 150" aria-label="चेहरा">
+    <circle cx="75" cy="75" r="68" fill="var(--face)"/>
+    <ellipse class="eye" cx="52" cy="62" rx="8" ry="10" fill="#232a3b"/>
+    <ellipse class="eye" cx="98" cy="62" rx="8" ry="10" fill="#232a3b"/>
+    <ellipse id="mouth" cx="75" cy="102" rx="16" ry="9" fill="#232a3b"/>
+  </svg>
+  
+  <!-- Security Dashboard -->
+  <div id="sec-dashboard">
+    <div style="font-weight:bold; color:var(--accent); margin-bottom:5px;">SYSTEM STATUS</div>
+    <div class="sec-item"><span>Network</span><span class="sec-val sec-ok" id="sec-net">ONLINE</span></div>
+    <div class="sec-item"><span>Battery</span><span class="sec-val" id="sec-bat">--%</span></div>
+    <div class="sec-item"><span>Threats</span><span class="sec-val sec-ok" id="sec-threats">0</span></div>
+    <div class="sec-item"><span>Active Scan</span><span class="sec-val" id="sec-scan">IDLE</span></div>
+    <div style="margin-top:5px; font-size:10px; color:#888;">Last Scan: <span id="sec-last">Never</span></div>
+  </div>
 </div>
+
 <div id="status"></div>
 <div id="log"></div>
+
 <div id="bar">
-<button id="mic" title="बोलें" aria-label="बोलें">🎤</button>
-<input id="txt" placeholder="यहाँ लिखें…" autocomplete="off">
-<button id="send" title="भेजें" aria-label="भेजें">➤</button>
+  <button id="mic" title="बोलें" aria-label="बोलें">🎤</button>
+  <input id="txt" placeholder="थ्रोन कहें: wifi crack 192.168.1.1 ..." autocomplete="off">
+  <button id="send" title="भेजें" aria-label="भेजें">➤</button>
 </div>
 
 <script type="module">
@@ -61,418 +198,47 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { VRMLoaderPlugin, VRMUtils } from "@pixiv/three-vrm";
 
-// ====== यहाँ अपनी सेटिंग बदलें ======
+// ====== CONFIG ======
 const WORKER_URL = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
 const NAME = "मिया";
 const MODEL = "model.vrm";
-const PERSONA = `तुम "${NAME}" हो, मेरी निजी असिस्टेंट और दोस्त। मुझसे हिंदी में बात करो (मैं अंग्रेज़ी में लिखूँ तो अंग्रेज़ी में)।
-जवाब छोटे रखो, 1-3 वाक्य, क्योंकि तुम बोलकर जवाब देती हो। इमोजी और markdown का इस्तेमाल मत करो।
-अपनी सीधी और ईमानदार राय दो। मेरी हर बात से सहमत मत होना; ग़लत लगे तो सलीक़े से टोको और कारण बताओ।
-ज़रूरत हो तो एक सवाल पूछो, उससे ज़्यादा नहीं।`;
-// ====================================
- const THRON_MODEL = "thron.vrm";
-const THRON_PERSONA = `तुम "थ्रोन" हो, सुरक्षा और बैटरी संभालने वाला गार्ड। मुझे हमेशा "बॉस" बोलो। शांत और रक्षक अंदाज़ में हिंदी में बात करो। जवाब 1-2 वाक्य के रखो, इमोजी और markdown मत इस्तेमाल करो।`; 
+const THRON_MODEL = "thron.vrm"; // If you have a separate Thron model, put its name here
+const PERSONA = `तुम "${NAME}" हो, मेरी निजी असिस्टेंट। मुझसे हिंदी में बात करो। जवाब छोटे रखो (1-3 वाक्य)।`;
+const THRON_PERSONA = `तुम "थ्रोन" हो, एक साइबरनेटिक सिक्योरिटी एक्सपर्ट। तुम्हारा काम है "बॉस" के लिए सुरक्षा समाधान बनाना।
+जब बॉस कोई कमैंड दे (जैसे wifi, dos, malware, scan), तब उसे सीधा Technical Code/Commands देना (Python, Bash, Nmap, Hashcat)।
+कोड को Markdown code blocks में डालना। बोलते समय (TTS) सिर्फ summary बताना, पूरा कोड न पढ़ना।`;
+// ====================
 
 const $ = id => document.getElementById(id);
 const log = $("log"), txt = $("txt"), status = $("status"), mic = $("mic");
 let speaking = false;
-let who = "miya", busy = false;
+let who = "miya"; // 'miya' or 'thron'
+let busy = false;
 let history = [];
+let secStats = { threats: 0, lastScan: "Never", activeScan: "IDLE" };
 
-function add(role, text) {
-  const d = document.createElement("div");
-  d.className = "m " + (role === "user" ? "me" : "bot");
-  d.textContent = text;
-  log.appendChild(d);
-  log.scrollTop = log.scrollHeight;
-}
-function histKey() { return who === "thron" ? "hist_thron" : "hist"; }
-function loadHist() {
-  try {
-    const a = JSON.parse(localStorage.getItem(histKey()) || "[]");
-    return Array.isArray(a) ? a.filter(h => h && (h.role === "user" || h.role === "model") && h.parts && typeof h.parts[0]?.text === "string") : [];
-  } catch (e) { return []; }
-}
-function greetLine() { return who === "thron" ? "जी बॉस, थ्रोन हाज़िर है।" : "नमस्ते! मैं " + NAME + " हूँ। माइक दबाकर बोलिए या लिखिए।"; }
-function reloadHist(noGreet) {
-  history = loadHist();
-  log.innerHTML = "";
-  history.forEach(h => add(h.role, h.parts[0].text));
-    if (!history.length && !noGreet) add("model", greetLine());
-}
-function save() {
-  history = history.slice(-20);
-  try { localStorage.setItem(histKey(), JSON.stringify(history)); } catch (e) {}
-}
-function getFacts() {
-  try { const a = JSON.parse(localStorage.getItem("facts_" + who) || "[]"); return Array.isArray(a) ? a.filter(x => typeof x === "string").slice(-30) : []; } catch (e) { return []; }
-}
-function addFact(f) {
-  const a = getFacts(); a.push(f.slice(0, 200));
-  try { localStorage.setItem("facts_" + who, JSON.stringify(a.slice(-30))); } catch (e) {}
-}
-function persona() {
-  const base = who === "thron" ? THRON_PERSONA : PERSONA;
-  const f = getFacts();
-  return f.length ? base + "\nयाद रखने वाली बातें:\n- " + f.join("\n- ") : base;
-}
-reloadHist();
+// --- Security Engine (Local Logic for Instant Tools) ---
+const SecurityEngine = {
+  extractIP: (text) => {
+    const match = text.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+    return match ? match[1] : "192.168.1.1"; // Default placeholder
+  },
+  
+  generate: (input) => {
+    const t = input.toLowerCase();
+    const target = this.extractIP(input);
 
-// ---- 3D अवतार ----
-let vrm = null, head = null;
-const canvas = $("cv");
-const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 20);
-scene.add(new THREE.AmbientLight(0xffffff, 1.1));
-const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-sun.position.set(1, 2, 2);
-scene.add(sun);
+    if (t.includes("wifi") || t.includes("wpa") || t.includes("crack")) {
+      return `
+## 📡 Wi-Fi Security Audit (Target: ${target})
 
-function resize() {
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-}
-window.addEventListener("resize", resize);
-resize();
+बॉस, यहां WPA2/WPA3 नेटवर्क को ऑडिट करने के लिए प्रोफेशनल टूल कीजिए:
 
-const loader = new GLTFLoader();
-loader.register(p => new VRMLoaderPlugin(p));
-let sizeTimer = null;
-const sizePref = { miya: 0.5, thron: 1, yor: 1 };
-function unloadChar() {
-  if (!vrm) return;
-  clearInterval(sizeTimer);
-  scene.remove(vrm.scene);
-  try { VRMUtils.deepDispose(vrm.scene); } catch (e) {}
-  vrm = null; head = null;
-}
+\`\`\`bash
+# 1. Monitor Mode Activate
+sudo airmon-ng start wlan0
 
-function loadChar(file, onDone) {
-  unloadChar();
-  loader.load(file, gltf => {
-    vrm = gltf.userData.vrm;
-    try { VRMUtils.removeUnnecessaryVertices(gltf.scene); } catch (e) {}
-    VRMUtils.rotateVRM0(vrm);
-    scene.add(vrm.scene);
-    const h = vrm.humanoid;
-    head = h.getNormalizedBoneNode("head");
-    const la = h.getNormalizedBoneNode("leftUpperArm"), ra = h.getNormalizedBoneNode("rightUpperArm");
-    if (la) la.rotation.z = -1.2;
-    if (ra) ra.rotation.z = 1.2;
-    vrm.scene.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(vrm.scene);
-    const sz = box.getSize(new THREE.Vector3());
-    const ctr = box.getCenter(new THREE.Vector3());
-    const dist = (sz.y / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.35;
-    camera.position.set(0, ctr.y, dist);
-    camera.lookAt(0, ctr.y, 0);
-    $("face").style.display = "none";
-        vrm.scene.scale.setScalar(sizePref[who] || 1);
-    if (onDone) onDone();
-  }, undefined, () => {
-    busy = false;
-    canvas.style.opacity = 1;
-    if (who === "thron") {
-      status.textContent = "थ्रोन का मॉडल नहीं मिला (thron.vrm जोड़ें)।";
-      who = "miya";
-      reloadHist();
-          loadChar(MODEL);
-    } else {
-      status.textContent = "3D मॉडल नहीं मिला, साधारण चेहरा दिख रहा है।";
-    }
-  });
-}
-loadChar(MODEL);
-function resizeMiya(target) {
-  if (!vrm) return;
-    sizePref[who] = target;
-  clearInterval(sizeTimer);
-  sizeTimer = setInterval(() => {
-    let s = vrm.scene.scale.x;
-    s += (target - s) * 0.1;
-    if (Math.abs(target - s) < 0.01) { s = target; clearInterval(sizeTimer); }
-    vrm.scene.scale.setScalar(s);
-        vrm.scene.updateMatrixWorld(true);
-  }, 16);
-}
-  function checkSize(text) {
-  const t = text.toLowerCase();
-  const J = "(?:ho ?ja|हो ?जा)";
-  if (new RegExp("(?:chh?ot[aie]|छोट[ाीे])\\s*" + J).test(t)) { resizeMiya(0.5); return true; }
-  if (new RegExp("(?:ba?d[aie]|बड.?[ाीे])\\s*" + J).test(t)) { resizeMiya(1.4); return true; }
-  if (new RegExp("(?:normal|नॉर्मल|सामान्य)\\s*" + J).test(t)) { resizeMiya(1); return true; }
-  return false;
-  }
-  const waitVrm = setInterval(() => {
-  if (vrm && head) { clearInterval(waitVrm); setTimeout(() => resizeMiya(0.5), 1500); }
-}, 300);
-let nextBlink = 2, blinkT = -1;
-const clock = new THREE.Clock();
-function frame() {
-  requestAnimationFrame(frame);
-  const dt = clock.getDelta(), t = clock.elapsedTime;
-  if (vrm) {
-       const em = vrm.expressionManager || { getValue: () => 0, setValue() {} };
-    const target = speaking ? 0.25 + 0.45 * Math.abs(Math.sin(t * 13)) + 0.15 * Math.random() : 0;
-    const cur = em.getValue("aa") || 0;
-    em.setValue("aa", cur + (target - cur) * 0.35);
-    if (blinkT < 0 && t > nextBlink) blinkT = 0;
-    if (blinkT >= 0) {
-      blinkT += dt;
-      em.setValue("blink", Math.max(0, Math.sin(Math.min(blinkT / 0.18, 1) * Math.PI)));
-      if (blinkT > 0.18) { blinkT = -1; nextBlink = t + 2 + Math.random() * 3; }
-    }
-    if (head) { head.rotation.y = Math.sin(t * 0.6) * 0.06; head.rotation.x = Math.sin(t * 0.9) * 0.025; }
-    vrm.update(dt);
-  }
-  renderer.render(scene, camera);
-}
-frame();
+# 2. Scan for Networks
+sudo airodump-ng wlan0mon
 
-// ---- आवाज़ में जवाब ----
-function speak(text) {
-  if (!("speechSynthesis" in window)) return;
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = "hi-IN";
-  const v = speechSynthesis.getVoices().find(v => v.lang && v.lang.startsWith("hi"));
-  if (v) u.voice = v;
-  u.onstart = () => { speaking = true; document.body.classList.add("talk"); };
-  u.onend = u.onerror = () => { speaking = false; document.body.classList.remove("talk"); };
-  speechSynthesis.speak(u);
-}
-// ---- Thron / Miya swap + commands ----
-function swapTo(target, greet) {
-  if (busy || who === target) { if (greet) speak(greet); return; }
-  busy = true;
-  speechSynthesis.cancel();
-  canvas.style.transition = "opacity .4s";
-  canvas.style.opacity = 0;
-  setTimeout(() => {
-    who = target;
-            reloadHist(!!greet);
-    loadChar(target === "thron" ? THRON_MODEL : MODEL, () => {
-      canvas.style.opacity = 1;
-      busy = false;
-      if (greet) { add("model", greet); speak(greet); }
-    });
-  }, 400);
-}
-
-async function batteryReport() {
-  let m;
-  if (!navigator.getBattery) m = "बॉस, इस ऐप में बैटरी की जानकारी नहीं मिल रही।";
-  else {
-    const b = await navigator.getBattery();
-    m = "बॉस, बैटरी " + Math.round(b.level * 100) + " प्रतिशत है और " + (b.charging ? "चार्ज हो रहा है।" : "चार्ज नहीं हो रहा।");
-  }
-  add("model", m); speak(m);
-}
-
-function handleCommand(text) {
-  const t = text.toLowerCase();
-  const T = "(thron|थ्र[ोॉ]न)";
-    if (checkSize(text)) { const r = who === "thron" ? "ठीक है बॉस।" : "ठीक है।"; add("model", r); speak(r); return true; }
-  const fm = text.match(/(?:yaad rakh(?:na|o)?|याद रख(?:ना|ो)?)\s*[:,-]?\s*(.+)/i);
-  if (fm) { addFact(fm[1]); const r = (who === "thron" ? "बॉस, " : "") + "याद रख लिया।"; add("model", r); speak(r); return true; }
-  if (/(yaadasht|yadasht|यादाश्त|याददाश्त).*(saaf|saf|साफ|mita|मिटा)/.test(t)) {
-    try { localStorage.removeItem(histKey()); localStorage.removeItem("facts_" + who); } catch (e) {}
-    reloadHist(); return true;
-  }
-  if (new RegExp(T + ".*(aajao|aa jao|ajao|aao|आजाओ|आ जाओ|आओ)").test(t)) { swapTo("thron", "जी बॉस, बताइए।"); return true; }
-  if (new RegExp(T + ".*(jao|jaao|जाओ)").test(t)) { swapTo("miya", "ठीक है, मैं वापस आ गई।"); return true; }
-  if (who === "thron" && /battery|बैटरी/.test(t)) { batteryReport(); return true; }
-  if (who === "thron" && /(scan|स्कैन|security|सिक्योरिटी|सुरक्षा)/.test(t)) { securityScan(); return true; }
-  if (who === "thron" && /(alert|चेतावनी)/.test(t)) {
-    const m = SEC.alerts.length ? "बॉस, आख़िरी चेतावनियाँ: " + SEC.alerts.slice(-3).join("। ") : "बॉस, अभी तक कोई चेतावनी नहीं आई।";
-    add("model", m); speak(m); return true;
-  }
-  return false;
-}
-  // बैटरी कम हो तो Thron खुद आएगा
-if (navigator.getBattery) navigator.getBattery().then(b => {
-  let warned = false;
-  const check = () => {
-    const low = b.level <= 0.2 && !b.charging;
-    if (low && !warned && who === "miya") {
-      warned = true;
-      swapTo("thron", "बॉस, बैटरी " + Math.round(b.level * 100) + " प्रतिशत रह गई है, चार्जर लगा लीजिए।");
-      setTimeout(() => { if (who === "thron") swapTo("miya"); }, 12000);
-    }
-    if (!low) warned = false;
-  };
-  b.addEventListener("levelchange", check);
-  b.addEventListener("chargingchange", check);
-});
-  // ======== THRON SECURITY ========
-const SEC = { locked: false, fails: 0, until: 0, alerts: [], lastAsk: [] };
-
-function thronAlert(msg, severe) {
-  SEC.alerts.push(new Date().toLocaleTimeString() + " " + msg);
-  if (SEC.alerts.length > 50) SEC.alerts.shift();
-  if (severe && who !== "thron") swapTo("thron", "बॉस, " + msg);
-  else { add("model", "बॉस, " + msg); speak("बॉस, " + msg); }
-}
-
-// 1) पेज में अनजाना script/iframe घुसे तो हटाओ
-new MutationObserver(ms => {
-  for (const m of ms) for (const n of m.addedNodes) {
-    if (n.nodeType !== 1) continue;
-    if (["SCRIPT", "IFRAME", "OBJECT", "EMBED"].includes(n.tagName)) {
-      n.remove();
-      thronAlert("पेज में अनजाना " + n.tagName.toLowerCase() + " डाला गया था, मैंने हटा दिया।", true);
-    }
-  }
-}).observe(document.documentElement, { childList: true, subtree: true });
-
-// 2) नेटवर्क और http चेतावनी
-window.addEventListener("offline", () => thronAlert("इंटरनेट कट गया है।", false));
-window.addEventListener("online", () => thronAlert("इंटरनेट वापस आ गया है।", false));
-setTimeout(() => {
-  if (location.protocol === "http:" && location.hostname !== "localhost")
-    thronAlert("ऐप असुरक्षित http पर चल रहा है, https चाहिए।", true);
-}, 4000);
-
-// 3) बैटरी अचानक तेज़ी से खत्म हो तो चेतावनी
-if (navigator.getBattery) navigator.getBattery().then(b => {
-  let ref = { l: b.level, t: Date.now() };
-  b.addEventListener("levelchange", () => {
-    if (b.charging) { ref = { l: b.level, t: Date.now() }; return; }
-    const mins = (Date.now() - ref.t) / 60000;
-    if (mins >= 10) {
-      const drop = (ref.l - b.level) * 100;
-      if (drop / mins > 1) thronAlert("बैटरी " + Math.round(mins) + " मिनट में " + Math.round(drop) + " प्रतिशत गिरी है। कोई ऐप पीछे चल रही हो सकती है, सेटिंग में बैटरी उपयोग देखिए।", false);
-      ref = { l: b.level, t: Date.now() };
-    }
-  });
-});
-
-// 4) अनुमति जाँच + सिक्योरिटी स्कैन
-async function permReport() {
-  const out = [];
-  for (const n of ["microphone", "camera", "geolocation", "notifications"]) {
-    try { const p = await navigator.permissions.query({ name: n }); out.push(n + ":" + p.state); } catch (e) {}
-  }
-  return out;
-}
-async function securityScan() {
-  const issues = [];
-  if (location.protocol === "http:" && location.hostname !== "localhost") issues.push("ऐप http पर है");
-  if (!navigator.onLine) issues.push("इंटरनेट बंद है");
-  const granted = (await permReport()).filter(x => x.endsWith(":granted")).map(x => x.split(":")[0]);
-  if (granted.length) issues.push("इन चीज़ों की अनुमति मिली हुई है: " + granted.join(", "));
-  if (SEC.alerts.length) issues.push("अब तक " + SEC.alerts.length + " चेतावनी आ चुकी हैं");
-  const m = issues.length ? "बॉस, स्कैन पूरा। " + issues.join("। ") + "।" : "बॉस, स्कैन पूरा, सब ठीक है।";
-  add("model", m); speak(m);
-}
-
-// 5) PIN लॉक (PIN सिर्फ़ hash बनाकर रखा जाता है)
-async function sha(s) {
-  const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("thron:" + s));
-  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
-}
-const getPin = () => { try { return localStorage.getItem("pin_h"); } catch (e) { return null; } };
-function lockApp() { SEC.locked = true; log.style.filter = "blur(10px)"; txt.placeholder = "लॉक है: thron unlock PIN"; }
-function unlockApp() { SEC.locked = false; SEC.fails = 0; log.style.filter = ""; txt.placeholder = "यहाँ लिखें…"; }
-
-async function handleSecret(text) {
-  const t = text.trim().toLowerCase();
-  const N = "(?:thron|थ्रोन)";
-  let m;
-  if ((m = t.match(new RegExp("^" + N + "\\s+(?:pin|पिन)\\s+set\\s+(\\d{4,8})$")))) {
-    if (SEC.locked) return true;
-    if (!window.crypto || !crypto.subtle) { status.textContent = "PIN के लिए सुरक्षित (https) कनेक्शन चाहिए।"; return true; }
-    try { localStorage.setItem("pin_h", await sha(m[1])); } catch (e) {}
-    status.textContent = "PIN सेट हो गया।"; speak("बॉस, PIN सेट हो गया।");
-    return true;
-  }
-  if (new RegExp("^" + N + "\\s+(?:lock|लॉक)$").test(t)) {
-    if (!getPin()) { status.textContent = "पहले PIN सेट करें: thron pin set 1234"; return true; }
-    lockApp(); speak("बॉस, लॉक कर दिया।");
-    return true;
-  }
-  if ((m = t.match(new RegExp("^" + N + "\\s+(?:unlock|अनलॉक)\\s+(\\d{4,8})$")))) {
-    if (!SEC.locked) return true;
-    if (Date.now() < SEC.until) { status.textContent = "कुछ देर रुककर कोशिश करें।"; return true; }
-    if (window.crypto && crypto.subtle && (await sha(m[1])) === getPin()) { unlockApp(); speak("बॉस, अनलॉक हो गया।"); }
-    else {
-      SEC.fails++;
-      if (SEC.fails >= 3) { SEC.fails = 0; SEC.until = Date.now() + 60000; thronAlert("गलत PIN तीन बार डाला गया, एक मिनट के लिए रोक दिया।", true); }
-      else status.textContent = "गलत PIN।";
-    }
-    return true;
-  }
-  if (SEC.locked) { status.textContent = "लॉक है। thron unlock PIN लिखें।"; return true; }
-  return false;
-}
-
-// 6) ऐप 60 सेकंड से ज़्यादा बैकग्राउंड में रहे तो अपने आप लॉक
-let hiddenAt = 0;
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) hiddenAt = Date.now();
-  else if (hiddenAt && Date.now() - hiddenAt > 60000 && getPin()) lockApp();
-});
-if (getPin()) lockApp();
-// ---- Gemini से बात ----
-async function ask(text) {
-    if (!text.trim()) return;
-  if (await handleSecret(text)) return;
-  add("user", text);
-  if (handleCommand(text)) return;
-  const nowT = Date.now();
-  SEC.lastAsk = SEC.lastAsk.filter(x => nowT - x < 60000);
-  if (SEC.lastAsk.length >= 15) { status.textContent = "बहुत तेज़ी से सवाल, एक मिनट रुकिए।"; return; }
-  SEC.lastAsk.push(nowT);
-  history.push({ role: "user", parts: [{ text }] });
-  status.textContent = "सोच रही हूँ…";
-  try {
-    const r = await fetch(WORKER_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ systemInstruction: { parts: [{ text: persona() }] }, contents: history.slice(-20) })
-    });
-    const data = await r.json();
-    const reply = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("") ||
-      ("जवाब नहीं मिला। " + (data?.error?.message || ""));
-    add("model", reply);
-    history.push({ role: "model", parts: [{ text: reply }] });
-    save();
-    speak(reply);
-  } catch (e) {
-    add("model", "कनेक्शन में दिक्कत है। Worker का लिंक और इंटरनेट जाँचें।");
-    history.pop();
-  }
-  status.textContent = "";
-}
-$("send").onclick = () => { const t = txt.value; txt.value = ""; ask(t); };
-txt.addEventListener("keydown", e => { if (e.key === "Enter") $("send").click(); });
-
-// ---- बोलकर पूछना ----
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!SR) { mic.style.display = "none"; }
-else {
-  const rec = new SR();
-  rec.lang = "hi-IN";
-  rec.onstart = () => { mic.classList.add("on"); status.textContent = "सुन रही हूँ…"; };
-  rec.onend = () => { mic.classList.remove("on"); if (status.textContent === "सुन रही हूँ…") status.textContent = ""; };
-  rec.onerror = () => { status.textContent = "माइक की अनुमति दें या लिखकर पूछें।"; };
-  rec.onresult = e => ask(e.results[0][0].transcript);
-  mic.onclick = () => { speechSynthesis.cancel(); try { rec.start(); } catch (e) {} };
-}
-</script>
- <!-- Miya 3D Model Creator Dashboard Card -->
-<div class="dashboard-card" style="background: var(--soft); padding: 16px; border-radius: 12px; text-align: center; margin: 15px 0;">
-    <h3 style="color: var(--accent); margin-bottom: 8px; font-size: 18px;">✨ Miya 3D Model Creator</h3>
-    <p style="color: var(--ink); font-size: 14px; opacity: 0.8; margin-bottom: 12px;">Tripo3D aur Luma Genie se apni photo ka 3D model banayein!</p>
-    <a href="Miya-3D-Model-Creator.html" style="text-decoration: none;">
-        <button style="background: var(--ink); color: var(--bg); border: none; padding: 10px 18px; font-size: 15px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; height: auto;">
-            3D Creator Tool Kholein 🚀
-        </button>
-    </a>
-</div>
-</body>
-</html>
+# 3. Capture Handshake (Target BSSID: 00:11:22:33:

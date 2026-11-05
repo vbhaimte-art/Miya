@@ -1,430 +1,115 @@
-package com.miya.app;
+#!/bin/bash
+set -e
 
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
-import android.app.Service;
-import android.content.Context;
-import android.content.Intent;
-import android.content.SharedPreferences;
-import android.graphics.PixelFormat;
-import android.graphics.drawable.Icon;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Handler;
-import android.os.IBinder;
-import android.os.Looper;
-import android.provider.Settings;
-import android.speech.RecognitionListener;
-import android.speech.RecognizerIntent;
-import android.speech.SpeechRecognizer;
-import android.speech.tts.TextToSpeech;
-import android.view.Gravity;
-import android.view.MotionEvent;
-import android.view.WindowManager;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
+rm -rf miya-app
+mkdir -p miya-app/app/src/main/java/com/miya/app
+mkdir -p miya-app/app/src/main/res/values
 
-import org.json.JSONArray;
-import org.json.JSONObject;
+# ---------------- settings.gradle ----------------
+cat > miya-app/settings.gradle <<'EOF'
+include ':app'
+EOF
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.Socket;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+# ---------------- root build.gradle ----------------
+cat > miya-app/build.gradle <<'EOF'
+buildscript {
+    repositories { google(); mavenCentral() }
+    dependencies { classpath 'com.android.tools.build:gradle:8.5.0' }
+}
+allprojects {
+    repositories { google(); mavenCentral() }
+}
+EOF
 
-/**
- * Miya — coding / debugging / system-automation voice helper.
- * Do modes, dono sirf isi daayre tak: coding, debugging, Termux commands, automation.
- *   NORMAL mode  -> sawaal poochna, chhote jawab, saadi madad.
- *   SETUP mode   -> naye tools/automations jodna, Termux se judna, settings badalna.
- * SETUP mode ka har sensitive action password maangta hai. Password kisi ko
- * attack/exploit cheezein karne ki ijazat nahi deta — ye sirf is baat ka taala
- * hai ki app ki setup kaun badal sakta hai.
- */
-public class MiyaService extends Service {
+# ---------------- app/build.gradle ----------------
+cat > miya-app/app/build.gradle <<'EOF'
+apply plugin: 'com.android.application'
 
-    // ---------------- CONFIG ----------------
-    static final String WORKER_URL = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
-    static final String TERMUX_HOST = "127.0.0.1";
-    static final int TERMUX_PORT = 5555;
-    static final String PREFS = "miya_prefs";
-    static final String KEY_PASS_HASH = "author_pass_hash";
-    static final String KEY_MEM = "miya_memory"; // seekhe hue tools (JSON array)
+android {
+    namespace 'com.miya.app'
+    compileSdk 34
 
-    // Persona: sirf coding / debugging / automation. Attack, exploit, malware,
-    // network-breaking commands iska hissa nahi hain — na normal mode me, na setup me.
-    static final String PERSONA_MIYA =
-        "Tum 'Miya' ho, ek coding, debugging aur system-automation assistant. User tumse jaise " +
-        "ek normal insaan se baat karta hai waise hi baat karo — natural Hindi/Hinglish, jaisi " +
-        "boli jaati hai waisi, formal ya robotic nahi. Jawab ki lambai topic ke hisaab se rakho: " +
-        "seedha sawaal ho to chhota jawab, code ya samjhana ho to jitna chahiye utna. Apni baat " +
-        "khud ki zabaan me kaho, kisi template ya fixed structure me mat bandho. " +
-        "Tumhara kaam: code likhna/samjhana, bugs dhoondhna, Termux shell commands " +
-        "(file management, scheduling, scripting, app automation) banana, aur in sab " +
-        "cheezon ko natural tarike se samjhana. Tum kabhi bhi kisi network, device, " +
-        "account ya system ko nuksan pahunchane wale commands, malware, exploit ya attack " +
-        "tareeke nahi dete — aisi request aaye to vo sirf concept level par, bachav (defense) " +
-        "ke nazariye se samjhati ho, actual command ya code kabhi nahi deti. " +
-        "Hamesha JSON format me jawab do (ye sirf app ke parsing ke liye hai, isse user ko " +
-        "dikhta kuch nahi — 'reasoning' me likha hua text hi bola jaata hai, isliye wahan " +
-        "poora natural jawab likho, chhota nahi): " +
-        "{\"action\":\"SPEAK|RUN_TERMUX|SHOW_CODE|NONE\",\"payload\":\"command ya code\",\"reasoning\":\"poora natural bolne wala jawab\"}";
-
-    // ---------------- STATE ----------------
-    WindowManager wm;
-    WebView web;
-    WindowManager.LayoutParams lp;
-    final Handler ui = new Handler(Looper.getMainLooper());
-    SpeechRecognizer rec;
-    TextToSpeech tts;
-    boolean ttsReady = false, listening = false, busy = false;
-    boolean setupMode = false; // password se unlock hota hai, ek baar unlock rehta hai jab tak service chale
-    final List<JSONObject> history = new ArrayList<>();
-    final ExecutorService net = Executors.newSingleThreadExecutor();
-    SharedPreferences prefs;
-
-    // Termux
-    boolean termuxConnected = false;
-    Socket termuxSocket;
-    OutputStream termuxOut;
-
-    // Drag state (overlay bubble)
-    float downX, downY;
-    int startX, startY;
-    boolean moved;
-
-    // Pending password flow: jab koi setup action maanga jaaye to pehle ye bharna padta hai
-    String pendingAction = null; // "ENTER_SETUP" | "SET_PASSWORD" | "RUN_TERMUX:<cmd>"
-    boolean awaitingPassword = false;
-
-    @Override
-    public IBinder onBind(Intent i) { return null; }
-
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startFg) {
-        if (intent != null && "STOP".equals(intent.getAction())) {
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-        if (!Settings.canDrawOverlays(this)) {
-            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName()));
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-            return START_STICKY;
-        }
-        prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        if (web == null) {
-            startFg();
-            buildOverlay();
-            initTts();
-            initRecognizer();
-        }
-        return START_STICKY;
+    defaultConfig {
+        applicationId "com.miya.app"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
     }
 
-    // ---------------- FOREGROUND NOTIFICATION ----------------
-    void startFg() {
-        NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel("miya", "Miya", NotificationManager.IMPORTANCE_LOW));
-        Intent stop = new Intent(this, MiyaService.class).setAction("STOP");
-        PendingIntent pi = PendingIntent.getService(this, 1, stop,
-                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification n = new Notification.Builder(this, "miya")
-                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-                .setContentTitle("Miya chal rahi hai")
-                .setContentText("Coding / debugging / automation helper — band karne ke liye tap karo")
-                .addAction(new Notification.Action.Builder(
-                        Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-                        "Band karo", pi).build())
-                .build();
-        startForeground(1, n);
+    buildTypes {
+        debug { }
     }
 
-    // ---------------- OVERLAY BUBBLE ----------------
-    void buildOverlay() {
-        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
-        web = new WebView(this);
-        WebSettings ws = web.getSettings();
-        ws.setJavaScriptEnabled(true);
-        ws.setDomStorageEnabled(true);
-        web.setWebViewClient(new WebViewClient());
-        web.setBackgroundColor(0x00000000);
-
-        int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                : WindowManager.LayoutParams.TYPE_PHONE;
-
-        lp = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                type,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-                PixelFormat.TRANSLUCENT);
-        lp.gravity = Gravity.TOP | Gravity.START;
-        lp.x = 0;
-        lp.y = 300;
-
-        web.setOnTouchListener((v, e) -> {
-            switch (e.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    downX = e.getRawX(); downY = e.getRawY();
-                    startX = lp.x; startY = lp.y; moved = false;
-                    return true;
-                case MotionEvent.ACTION_MOVE:
-                    int dx = (int) (e.getRawX() - downX), dy = (int) (e.getRawY() - downY);
-                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) moved = true;
-                    lp.x = startX + dx; lp.y = startY + dy;
-                    wm.updateViewLayout(web, lp);
-                    return true;
-                case MotionEvent.ACTION_UP:
-                    if (!moved) onBubbleTap();
-                    return true;
-            }
-            return false;
-        });
-
-        wm.addView(web, lp);
-        web.loadDataWithBaseURL(null, bubbleHtml(), "text/html", "UTF-8", null);
-    }
-
-    String bubbleHtml() {
-        return "<html><body style='margin:0;background:transparent'>"
-             + "<div style='width:60px;height:60px;border-radius:50%;background:#111;"
-             + "border:2px solid #0f0;display:flex;align-items:center;justify-content:center;"
-             + "font-size:26px;color:#0f0;font-family:monospace'>" + (setupMode ? "⚙" : "🎤") + "</div>"
-             + "</body></html>";
-    }
-
-    void onBubbleTap() {
-        if (busy) return;
-        if (awaitingPassword) {
-            // Tap ki jagah voice se password lega — listenOnce() already password flow ko jaanta hai.
-            listenOnce();
-            return;
-        }
-        listenOnce();
-    }
-
-    // ---------------- TTS ----------------
-    void initTts() {
-        tts = new TextToSpeech(this, status -> {
-            if (status == TextToSpeech.SUCCESS) {
-                tts.setLanguage(new Locale("hi", "IN"));
-                ttsReady = true;
-            }
-        });
-    }
-
-    void speak(String text) {
-        if (ttsReady) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "miya_utt");
-    }
-
-    // ---------------- SPEECH RECOGNITION ----------------
-    void initRecognizer() {
-        rec = SpeechRecognizer.createSpeechRecognizer(this);
-    }
-
-    void listenOnce() {
-        if (listening) return;
-        listening = true;
-        Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
-
-        rec.setRecognitionListener(new RecognitionListener() {
-            @Override public void onResults(android.os.Bundle b) {
-                listening = false;
-                ArrayList<String> r = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                if (r != null && !r.isEmpty()) onHeard(r.get(0));
-            }
-            @Override public void onError(int e) { listening = false; }
-            @Override public void onReadyForSpeech(android.os.Bundle b) {}
-            @Override public void onBeginningOfSpeech() {}
-            @Override public void onRmsChanged(float v) {}
-            @Override public void onBufferReceived(byte[] buf) {}
-            @Override public void onEndOfSpeech() {}
-            @Override public void onEvent(int t, android.os.Bundle b) {}
-            @Override public void onPartialResults(android.os.Bundle b) {}
-        });
-        rec.startListening(i);
-    }
-
-    // ---------------- COMMAND ROUTING ----------------
-    void onHeard(String text) {
-        String t = text.trim();
-
-        // Password flow jo chal raha hai usko pehle handle karo
-        if (awaitingPassword) {
-            checkPassword(t);
-            return;
-        }
-
-        String low = t.toLowerCase(Locale.ROOT);
-
-        if (low.contains("setup mode") || low.contains("author mode") || low.contains("setup kholo")) {
-            askPassword("ENTER_SETUP");
-            return;
-        }
-        if (low.contains("password badlo") || low.contains("naya password")) {
-            if (!setupMode) { askPassword("SET_PASSWORD"); return; }
-            promptNewPassword();
-            return;
-        }
-        if (low.contains("normal mode") || low.contains("setup band")) {
-            setupMode = false;
-            refreshBubble();
-            speak("Normal mode me wapas");
-            return;
-        }
-        if (setupMode && low.startsWith("termux ")) {
-            // Setup mode me hi Termux command chalegi, aur wo bhi sirf coding/automation daayre ki
-            runTermux(t.substring(7).trim());
-            return;
-        }
-
-        askAI(t);
-    }
-
-    void refreshBubble() {
-        if (web != null) web.loadDataWithBaseURL(null, bubbleHtml(), "text/html", "UTF-8", null);
-    }
-
-    // ---------------- PASSWORD ----------------
-    String sha256(String s) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] d = md.digest(s.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (byte x : d) sb.append(String.format("%02x", x));
-            return sb.toString();
-        } catch (Exception e) { return String.valueOf(s.hashCode()); }
-    }
-
-    void askPassword(String action) {
-        pendingAction = action;
-        awaitingPassword = true;
-        String saved = prefs.getString(KEY_PASS_HASH, null);
-        if (saved == null) {
-            speak("Pehli baar hai. Apna naya password bolo.");
-        } else {
-            speak("Password bolo");
-        }
-    }
-
-    void checkPassword(String spoken) {
-        awaitingPassword = false;
-        String saved = prefs.getString(KEY_PASS_HASH, null);
-        String action = pendingAction; pendingAction = null;
-
-        if (saved == null) {
-            // pehli baar — jo bhi bola wahi set ho jata hai
-            prefs.edit().putString(KEY_PASS_HASH, sha256(spoken)).apply();
-            speak("Password set ho gaya");
-            if ("ENTER_SETUP".equals(action)) { setupMode = true; refreshBubble(); speak("Setup mode on"); }
-            return;
-        }
-
-        if (sha256(spoken).equals(saved)) {
-            if ("ENTER_SETUP".equals(action)) { setupMode = true; refreshBubble(); speak("Setup mode on"); }
-            else if ("SET_PASSWORD".equals(action)) { promptNewPassword(); }
-            else if (action != null && action.startsWith("RUN_TERMUX:")) {
-                runTermuxNow(action.substring(11));
-            }
-        } else {
-            speak("Galat password");
-        }
-    }
-
-    void promptNewPassword() {
-        awaitingPassword = true;
-        pendingAction = "SET_PASSWORD_VALUE";
-        speak("Naya password bolo");
-    }
-
-    // ---------------- TERMUX (coding / automation ke liye hi) ----------------
-    void runTermux(String cmd) {
-        if (!setupMode) { askPassword("RUN_TERMUX:" + cmd); return; }
-        runTermuxNow(cmd);
-    }
-
-    void runTermuxNow(String cmd) {
-        net.execute(() -> {
-            try {
-                if (!termuxConnected) connectTermux();
-                termuxOut.write((cmd + "\n").getBytes(StandardCharsets.UTF_8));
-                termuxOut.flush();
-                BufferedReader r = new BufferedReader(new InputStreamReader(termuxSocket.getInputStream()));
-                StringBuilder out = new StringBuilder();
-                String line; int lines = 0;
-                while ((line = r.readLine()) != null && lines < 30) { out.append(line).append('\n'); lines++; }
-                ui.post(() -> speak("Command chal gaya"));
-            } catch (Exception e) {
-                ui.post(() -> speak("Termux se connect nahi ho paya: " + e.getMessage()));
-            }
-        });
-    }
-
-    void connectTermux() throws Exception {
-        termuxSocket = new Socket(TERMUX_HOST, TERMUX_PORT);
-        termuxOut = termuxSocket.getOutputStream();
-        termuxConnected = true;
-    }
-
-    // ---------------- AI CALL (coding/debug/automation persona only) ----------------
-    void askAI(String userText) {
-        busy = true;
-        net.execute(() -> {
-            try {
-                JSONObject body = new JSONObject();
-                body.put("system", PERSONA_MIYA);
-                JSONArray msgs = new JSONArray();
-                JSONObject m = new JSONObject();
-                m.put("role", "user");
-                m.put("content", userText);
-                msgs.put(m);
-                body.put("messages", msgs);
-
-                URL url = new URL(WORKER_URL);
-                HttpURLConnection c = (HttpURLConnection) url.openConnection();
-                c.setRequestMethod("POST");
-                c.setRequestProperty("Content-Type", "application/json");
-                c.setDoOutput(true);
-                c.getOutputStream().write(body.toString().getBytes(StandardCharsets.UTF_8));
-
-                BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()));
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = r.readLine()) != null) sb.append(line);
-
-                JSONObject resp = new JSONObject(sb.toString());
-                String reasoning = resp.optString("reasoning", resp.optString("text", ""));
-                history.add(resp);
-                ui.post(() -> { busy = false; if (!reasoning.isEmpty()) speak(reasoning); });
-            } catch (Exception e) {
-                ui.post(() -> { busy = false; speak("Samajh nahi payi: " + e.getMessage()); });
-            }
-        });
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        if (web != null && wm != null) wm.removeView(web);
-        if (rec != null) rec.destroy();
-        if (tts != null) tts.shutdown();
-        net.shutdownNow();
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 }
+EOF
+
+# ---------------- AndroidManifest.xml ----------------
+cat > miya-app/app/src/main/AndroidManifest.xml <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/auto">
+
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:label="Miya"
+        android:theme="@android:style/Theme.DeviceDefault">
+
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <service android:name=".MiyaService" android:exported="false"/>
+    </application>
+</manifest>
+EOF
+
+# ---------------- MainActivity.java ----------------
+cat > miya-app/app/src/main/java/com/miya/app/MainActivity.java <<'EOF'
+package com.miya.app;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.provider.Settings;
+
+public class MainActivity extends Activity {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        String[] perms;
+        if (Build.VERSION.SDK_INT >= 33) {
+            perms = new String[]{android.Manifest.permission.RECORD_AUDIO, android.Manifest.permission.POST_NOTIFICATIONS};
+        } else {
+            perms = new String[]{android.Manifest.permission.RECORD_AUDIO};
+        }
+        requestPermissions(perms, 1);
+
+        if (!Settings.canDrawOverlays(this)) {
+            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())));
+        } else {
+            startService(new Intent(this, MiyaService.class));
+        }
+        finish();
+    }
+}
+EOF
+
+echo "Project scaffold ready."

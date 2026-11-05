@@ -38,12 +38,19 @@ textarea.in{height:90px}
 <div id="main-ui">
   <button id="mic-btn" onclick="startListening()">🎤</button>
   <p id="status-text">System Ready... Tap Mic or Use Buttons Below</p>
+  <div class="row" style="width:100%;max-width:300px">
+    <input class="in" id="cmd-input" placeholder="Command type karo..." style="flex:1;margin:0" onkeydown="if(event.key==='Enter')runTyped()">
+    <button class="sm" onclick="runTyped()" style="margin:0">▶</button>
+  </div>
   <div class="controls" id="controls">
     <button class="ctrl-btn" onclick="executeTool('openCamera')">📷 Spy Cam</button>
     <button class="ctrl-btn" onclick="executeTool('scanNetwork')">📡 Scan Net</button>
     <button class="ctrl-btn" onclick="executeTool('startDos')">⚠️ DoS Sim</button>
     <button class="ctrl-btn" onclick="executeTool('scrapeData')">🕸️ Scrape Data</button>
     <button class="ctrl-btn" onclick="executeTool('openBrain')" style="grid-column:span 2">🧠 Brain (Add Tool)</button>
+    <button class="ctrl-btn" onclick="executeTool('webSearch')">🔎 Web Search</button>
+    <button class="ctrl-btn" onclick="executeTool('secConcepts')">🎓 Security Concepts</button>
+    <button class="ctrl-btn" onclick="executeTool('aboutSelf')" style="grid-column:span 2">ℹ️ Mere andar kya hai?</button>
   </div>
   <div class="controls" id="custom-controls" style="margin-top:10px"></div>
 </div>
@@ -107,7 +114,40 @@ textarea.in{height:90px}
 // ---------- Core ----------
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-const commands = {"miya spy karo":"openCamera","scan network":"scanNetwork","scrape data":"scrapeData","start dos attack":"startDos","open brain":"openBrain","stop":"closeTools"};
+const commands = {"miya spy karo":"openCamera","scan network":"scanNetwork","scrape data":"scrapeData","start dos attack":"startDos","open brain":"openBrain","khud ke baare me batao":"aboutSelf","about yourself":"aboutSelf","web search":"webSearch","security concepts":"secConcepts","ethical hacking":"secConcepts","stop":"closeTools"};
+// Har built-in command ka ek-line kaam, selfInfo() isi se padhta hai
+const CMD_DESC = {
+  openCamera:'Camera on karke live preview dikhata hai',
+  scanNetwork:'Fake network device list print karta hai (simulation)',
+  scrapeData:'Fake data-scrape log dikhata hai (simulation)',
+  startDos:'DoS progress bar bharta hai, kuch bhejta nahi (simulation)',
+  openBrain:'Naya tool add/seekhne/fix karne ka panel kholta hai',
+  aboutSelf:'Khud ke tools aur commands ki list sunata/dikhata hai',
+  webSearch:'Google par query search karta hai (naye tab me)',
+  secConcepts:'Security concepts sirf samajh/bachav ke nazariye se dikhata hai, attack commands nahi deta',
+  closeTools:'Jo bhi panel khula hai usse band karta hai'
+};
+
+// ---- Dono entry points (typing + voice) isi ek function se guzarte hain ----
+function routeCommand(raw){
+  const t = String(raw || '').toLowerCase().trim();
+  if(!t) return;
+  $('status-text').innerText = `Command: "${t}"`;
+  if(t.startsWith('search ') || t.startsWith('search for ')){
+    webSearch(t.replace(/^search( for)?\s*/, ''));
+    return;
+  }
+  for(const c in commands){ if(t.includes(c)){ executeTool(commands[c]); return; } }
+  const ct = tools.find(x => x.enabled && x.trigger && t.includes(x.trigger));
+  if(ct){ runTool(ct); return; }
+  speak("Command not recognized");
+  $('status-text').innerText = `Samajh nahi aaya: "${t}"`;
+}
+function runTyped(){
+  const v = $('cmd-input').value;
+  $('cmd-input').value = '';
+  routeCommand(v);
+}
 let recognition, mediaStream = null, activeIntervals = [], closeHooks = [];
 
 function clearAllIntervals(){ activeIntervals.forEach(clearInterval); activeIntervals = []; }
@@ -120,12 +160,8 @@ function startListening(){
     recognition.continuous = false; recognition.interimResults = false; recognition.lang = 'en-IN';
     $('status-text').innerText = "Listening... Speak now 🎙️";
     recognition.onresult = e => {
-      const t = e.results[0][0].transcript.toLowerCase().trim();
-      $('status-text').innerText = `Heard: "${t}"`;
-      for(const c in commands){ if(t.includes(c)){ executeTool(commands[c]); return; } }
-      const ct = tools.find(x => x.enabled && x.trigger && t.includes(x.trigger));
-      if(ct){ runTool(ct); return; }
-      speak("Command not recognized");
+      const t = e.results[0][0].transcript;
+      routeCommand(t);
     };
     recognition.onerror = e => { $('status-text').innerText = "Mic Error: " + e.error; };
     recognition.onend = () => { $('status-text').innerText = "System Idle. Tap Mic."; };
@@ -141,6 +177,9 @@ function executeTool(name){
     case "scrapeData": openPanel('scrape-panel'); simulateScrape(); speak("Starting data scrape"); break;
     case "startDos": openPanel('dos-panel'); simulateDos(); speak("Initiating DoS attack simulation"); break;
     case "openBrain": openPanel('brain-panel'); render(); break;
+    case "aboutSelf": aboutSelf(); break;
+    case "webSearch": { const q = prompt('Kya search karna hai?'); if(q) webSearch(q); break; }
+    case "secConcepts": secConcepts(); break;
     case "closeTools": closeTools(); break;
   }
 }
@@ -193,6 +232,28 @@ function simulateScrape(){
     log.innerHTML += `<br>> Extracted: ${d[i]}`; log.scrollTop = log.scrollHeight; i++;
   }, 800);
   activeIntervals.push(iv);
+}
+
+// ---------- Web Search ----------
+function webSearch(q){
+  q = String(q || '').trim();
+  if(!q){ speak('Kya search karu, bolo'); return; }
+  window.open('https://www.google.com/search?q=' + encodeURIComponent(q), '_blank');
+  speak('Search kar rahi hoon: ' + q);
+  $('status-text').innerText = 'Searched: ' + q;
+}
+
+// ---------- Security Concepts (sirf samajh/bachav, attack commands kabhi nahi) ----------
+function secConcepts(){
+  const h = `<h3 style="margin-top:0">🎓 Security Concepts (defense-only)</h3>
+  <p><b>DoS (Denial of Service):</b> ek server ko itne saare fake requests bhej dena ki wo asli users ke liye kaam karna band kar de. Bachav: rate-limiting, firewall, CDN jaise Cloudflare.</p>
+  <p><b>Phishing:</b> fake login page ya message se kisi ka password/OTP churane ki koshish. Bachav: URL dhyan se dekho, 2FA on rakho, unknown link na kholo.</p>
+  <p><b>Malware:</b> aisa software jo bina permission ke device me ghus kar data churaye ya nuksan kare. Bachav: sirf trusted source se app install karo, permissions check karo.</p>
+  <p><b>Network Scanning:</b> network par kaun se devices/ports khule hain ye dekhna. Defensive use: khud ke network ko audit karna, unused ports band karna.</p>
+  <p><b>Password Security:</b> lamba, unique password, password manager, har jagah same password na use karo.</p>
+  <p style="opacity:.7">Ye sab sirf samajhne aur khud ko bachane ke liye hai — Miya kisi bhi real attack command, exploit code, ya kisi aur ke system par chalane wala script kabhi nahi degi.</p>`;
+  miya.show(h, '🎓 Security Concepts');
+  speak('Ye concepts sirf samajh aur bachav ke liye hain, main asli attack command kabhi nahi deti');
 }
 
 // ---------- Brain: learnable tools ----------
@@ -384,6 +445,33 @@ async function act(a, i){
   if(a === 'undo' && t.history.length){ t.code = t.history.pop(); t.enabled = true; blog('↩️ Purana version wapas'); }
   if(a === 'del'){ if(!confirm('Delete ' + t.name + '?')) return; tools.splice(i, 1); }
   saveTools(); render();
+}
+
+// ---- Khud ke baare me (code se hi padhkar banta hai, hardcoded jawab nahi) ----
+function aboutSelf(){
+  let h = '<h3 style="margin-top:0">🎙️ Voice Commands (built-in)</h3><ul style="padding-left:18px">';
+  for(const phrase in commands){
+    const fn = commands[phrase];
+    h += `<li><b>"${esc(phrase)}"</b> → ${esc(CMD_DESC[fn] || fn)}</li>`;
+  }
+  h += '</ul><h3>🧩 Built-in Tools (panel wale)</h3><ul style="padding-left:18px">';
+  h += '<li>📷 Spy Cam — camera live preview (simulation, recording nahi karta)</li>';
+  h += '<li>📡 Scan Net — fake device list (simulation)</li>';
+  h += '<li>⚠️ DoS Sim — progress bar, kuch bhejta nahi (simulation)</li>';
+  h += '<li>🕸️ Scrape Data — fake extracted data log (simulation)</li></ul>';
+  h += '<h3>🧠 Local Brain Templates (bina AI ke)</h3><ul style="padding-left:18px">';
+  LOCAL.forEach(c => h += `<li><b>${esc(c.name)}</b> — keywords: ${esc(c.k.join(', '))}</li>`);
+  h += '</ul>';
+  if(tools.length){
+    h += '<h3>🔧 Seekhe hue tools (' + tools.length + ')</h3><ul style="padding-left:18px">';
+    tools.forEach(t => h += `<li><b>${esc(t.name)}</b> [${esc(t.cat || '')}] — bolo: "${esc(t.trigger)}" ${t.enabled ? '' : '(disabled)'}</li>`);
+    h += '</ul>';
+  } else {
+    h += '<p>Abhi koi custom tool nahi seekha.</p>';
+  }
+  h += '<h3>📂 File ka structure</h3><p>&lt;style&gt; = look · &lt;body&gt; = buttons/panels · &lt;script&gt; = sab logic (voice, tools, Brain, password, placement)</p>';
+  miya.show(h, 'ℹ️ Mere andar kya hai');
+  speak(`Mere paas ${Object.keys(commands).length} built-in commands aur ${tools.length} seekhe hue tools hain`);
 }
 
 function render(){

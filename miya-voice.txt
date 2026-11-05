@@ -1,534 +1,561 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Miya OS - Terminal</title>
-    <style>
-        /* LINE 1–34: CSS */
-        body { margin: 0; padding: 0; background-color: #000; color: #0f0; font-family: 'Courier New', Courier, monospace; overflow: hidden; }
-        
-        /* Main Screen Layout */
-        #main-ui { display: flex; flex-direction: column; height: 100vh; padding: 10px; box-sizing: border-box; }
-        
-        /* Header & Mic */
-        #header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #0f0; }
-        #status { font-size: 0.9em; opacity: 0.8; }
-        #mic-btn { background: #000; border: 1px solid #0f0; color: #0f0; padding: 5px 15px; cursor: pointer; font-family: inherit; }
-        #mic-btn:hover { background: #0f0; color: #000; }
+package com.miya.app;
 
-        /* Fixed Buttons Container (Line 38-49 area) */
-        #fixed-controls { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-        .btn { background: #000; border: 1px solid #0f0; color: #0f0; padding: 8px 12px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
-        .btn:hover { background: #0f0; color: #000; }
-        
-        /* Dynamic Controls Container (Naye tools yahan aayenge) */
-        #custom-controls { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; min-height: 40px; border: 1px dashed #333; padding: 5px; }
-        #custom-controls:empty::before { content: "No custom tools yet..."; color: #555; font-size: 0.8em; }
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.PixelFormat;
+import android.graphics.drawable.Icon;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+import android.provider.Settings;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.speech.tts.TextToSpeech;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.util.DisplayMetrics;
 
-        /* Brain Panel Button */
-        #brain-btn { position: fixed; top: 10px; right: 10px; z-index: 100; width: 60px; height: 60px; border-radius: 50%; font-weight: bold; font-size: 1.2em; }
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-        /* Fullscreen Panels (Lines 51-82) */
-        .panel { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 90; padding: 20px; box-sizing: border-box; border: 2px solid #0f0; overflow-y: auto; }
-        .panel.active { display: block; }
-        .panel-header { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 1px solid #0f0; padding-bottom: 10px; }
-        .close-btn { background: #000; border: 1px solid #0f0; color: #0f0; cursor: pointer; padding: 5px 10px; }
-        .log-area { white-space: pre-wrap; word-break: break-all; font-size: 0.9em; line-height: 1.4; }
-        
-        /* Specific Panel Styles */
-        #cam-panel video { width: 100%; max-height: 60%; border: 1px solid #0f0; margin-bottom: 10px; }
-        #dos-bar-container { width: 100%; height: 20px; border: 1px solid #0f0; margin-top: 20px; }
-        #dos-bar { height: 100%; background: #0f0; width: 0%; transition: width 0.1s; }
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.Socket;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-        /* Brain Panel (Lines 84-104) */
-        #brain-panel { z-index: 95; }
-        #brain-input-area { width: 100%; height: 100px; background: #111; border: 1px solid #0f0; color: #0f0; padding: 10px; font-family: inherit; margin-bottom: 10px; resize: vertical; }
-        #brain-controls { display: flex; gap: 5px; margin-bottom: 10px; }
-        #brain-log { background: #050505; height: 200px; overflow-y: auto; border: 1px solid #333; padding: 5px; font-size: 0.8em; }
-        
-        /* Tool List in Brain */
-        #tool-list { margin-top: 10px; font-size: 0.8em; color: #888; }
-        .tool-tag { display: inline-block; background: #000; border: 1px solid #0f0; padding: 2px 5px; margin: 2px; color: #0f0; }
+/**
+ * Miya — coding / debugging / system-automation voice helper.
+ * Do modes, dono sirf isi daayre tak: coding, debugging, Termux commands, automation.
+ *   NORMAL mode  -> sawaal poochna, chhote jawab, saadi madad.
+ *   SETUP mode   -> naye tools/automations jodna, Termux se judna, settings badalna.
+ * SETUP mode ka har sensitive action password maangta hai. Password kisi ko
+ * attack/exploit cheezein karne ki ijazat nahi deta — ye sirf is baat ka taala
+ * hai ki app ki setup kaun badal sakta hai.
+ */
+public class MiyaService extends Service {
 
-        /* Overlay for close button */
-        #overlay-close { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 80; display: none; cursor: crosshair; }
-        #overlay-close.active { display: block; }
-    </style>
-</head>
-<body>
+    // ---------------- CONFIG ----------------
+    static final String WORKER_URL = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
+    static final String APP_KEY = ""; // build ke time "Insert token" step isme secrets.MIYA_TOKEN daal deta hai
+    static final String TERMUX_HOST = "127.0.0.1";
+    static final int TERMUX_PORT = 5555;
+    static final String PREFS = "miya_prefs";
+    static final String KEY_PASS_HASH = "author_pass_hash";
+    static final String KEY_MEM = "miya_memory"; // seekhe hue tools (JSON array)
 
-<div id="main-ui">
-    <!-- Line 38-49: Main Screen -->
-    <div id="header">
-        <div>
-            <strong>MIYA OS v2.0</strong>
-            <span id="status">System Ready</span>
-        </div>
-        <button id="mic-btn" onclick="startListening()">🎤 Listen</button>
-    </div>
+    // Persona: sirf coding / debugging / automation. Attack, exploit, malware,
+    // network-breaking commands iska hissa nahi hain — na normal mode me, na setup me.
+    static final String PERSONA_MIYA =
+        "Tum 'Miya' ho, ek coding, debugging aur system-automation assistant. User tumse jaise " +
+        "ek normal insaan se baat karta hai waise hi baat karo — natural Hindi/Hinglish, jaisi " +
+        "boli jaati hai waisi, formal ya robotic nahi. Jawab ki lambai topic ke hisaab se rakho: " +
+        "seedha sawaal ho to chhota jawab, code ya samjhana ho to jitna chahiye utna. Apni baat " +
+        "khud ki zabaan me kaho, kisi template ya fixed structure me mat bandho. " +
+        "Tumhara kaam: code likhna/samjhana, bugs dhoondhna, Termux shell commands " +
+        "(file management, scheduling, scripting, app automation) banana, aur in sab " +
+        "cheezon ko natural tarike se samjhana. Tum kabhi bhi kisi network, device, " +
+        "account ya system ko nuksan pahunchane wale commands, malware, exploit ya attack " +
+        "tareeke nahi dete — aisi request aaye to vo sirf concept level par, bachav (defense) " +
+        "ke nazariye se samjhati ho, actual command ya code kabhi nahi deti. " +
+        "Tum khud ek Android foreground-service app ho (MiyaService.java) jo screen par ek chhota " +
+        "floating bubble dikhata hai, voice se sunta hai, TTS se bolta hai, aur password-gated " +
+        "Setup mode me Termux se judkar shell commands chalata hai. Jab user code, bug ya feature " +
+        "ke baare me poochhe, tum ye context yaad rakhkar jawab do. " +
+        "Hamesha JSON format me jawab do (ye sirf app ke parsing ke liye hai, isse user ko " +
+        "dikhta kuch nahi — 'reasoning' me likha hua text hi bola jaata hai, isliye wahan " +
+        "poora natural jawab likho, chhota nahi): " +
+        "{\"action\":\"SPEAK|RUN_TERMUX|SHOW_CODE|NONE\",\"payload\":\"command ya code\",\"reasoning\":\"poora natural bolne wala jawab\"}";
 
-    <!-- Fixed Buttons Area -->
-    <div id="fixed-controls">
-        <button class="btn" onclick="openPanel('spy')">Spy Cam</button>
-        <button class="btn" onclick="scanNetwork()">Scan Net</button>
-        <button class="btn" onclick="doSSim()">DoS Sim</button>
-        <button class="btn" onclick="scrapeData()">Scrape Data</button>
-    </div>
+    // ---------------- STATE ----------------
+    WindowManager wm;
+    WebView web;
+    WindowManager.LayoutParams lp;
+    final Handler ui = new Handler(Looper.getMainLooper());
+    SpeechRecognizer rec;
+    TextToSpeech tts;
+    boolean ttsReady = false, listening = false, busy = false;
+    boolean setupMode = false; // password se unlock hota hai, ek baar unlock rehta hai jab tak service chale
+    final List<JSONObject> history = new ArrayList<>();
+    final ExecutorService net = Executors.newSingleThreadExecutor();
+    SharedPreferences prefs;
 
-    <!-- Dynamic Tools Container (Naye tools yahan aayenge) -->
-    <div id="custom-controls"></div>
+    // Termux
+    boolean termuxConnected = false;
+    Socket termuxSocket;
+    OutputStream termuxOut;
 
-    <!-- Brain Button -->
-    <button id="brain-btn" class="btn" onclick="toggleBrain()">BRAIN</button>
-</div>
+    // Drag state (overlay bubble)
+    float downX, downY;
+    int startX, startY;
+    boolean moved;
+    boolean expanded = false; // false = chhota bubble, true = buttons+input wala panel
 
-<!-- Line 51-82: Fullscreen Panels -->
-<div id="spy-panel" class="panel">
-    <div class="panel-header"><h3>Spy Camera</h3><button class="close-btn" onclick="closeAllPanels()">X</button></div>
-    <div id="cam-panel">
-        <video id="camera-feed" autoplay playsinline></video>
-        <div class="log-area" id="cam-log">Camera Feed Active...</div>
-    </div>
-</div>
+    // Pending password flow: jab koi setup action maanga jaaye to pehle ye bharna padta hai
+    String pendingAction = null; // "ENTER_SETUP" | "SET_PASSWORD" | "RUN_TERMUX:<cmd>"
+    boolean awaitingPassword = false;
 
-<div id="net-panel" class="panel">
-    <div class="panel-header"><h3>Network Scan</h3><button class="close-btn" onclick="closeAllPanels()">X</button></div>
-    <div class="log-area" id="net-log">Initializing scan...</div>
-</div>
+    @Override
+    public IBinder onBind(Intent i) { return null; }
 
-<div id="dos-panel" class="panel">
-    <div class="panel-header"><h3>DoS Simulation</h3><button class="close-btn" onclick="closeAllPanels()">X</button></div>
-    <div style="padding: 20px;">
-        <div id="dos-status">Targeting...</div>
-        <div id="dos-bar-container"><div id="dos-bar"></div></div>
-        <div class="log-area" id="dos-log" style="margin-top: 10px;"></div>
-    </div>
-</div>
-
-<div id="scrape-panel" class="panel">
-    <div class="panel-header"><h3>Data Scrape</h3><button class="close-btn" onclick="closeAllPanels()">X</button></div>
-    <div class="log-area" id="scrape-log">Starting scrape...</div>
-</div>
-
-<!-- Line 84-104: Brain Panel -->
-<div id="brain-panel" class="panel">
-    <div class="panel-header"><h3>AI Brain</h3><button class="close-btn" onclick="toggleBrain()">X</button></div>
-    <textarea id="brain-input-area" placeholder="Enter command, code, or request..."></textarea>
-    <div id="brain-controls">
-        <button class="btn" onclick="makePlan()">Plan Banao</button>
-        <button class="btn" onclick="learnCode()">Code Seekho</button>
-        <button class="btn" onclick="showPlan()">Kahan Dalu</button>
-        <button class="btn" onclick="document.getElementById('auth-modal').style.display='block'">Password</button>
-    </div>
-    <div id="brain-log">Log started...</div>
-    <div id="tool-list">Tools: <span id="tool-count">0</span></div>
-</div>
-
-<!-- Hidden Overlay to close panels easily -->
-<div id="overlay-close" onclick="closeAllPanels()"></div>
-
-<script>
-// LINE 106+: JavaScript Logic
-
-const $ = id => document.getElementById(id);
-
-// Commands Object for Voice
-const commands = {
-    "spy cam": () => openPanel('spy'),
-    "network scan": scanNetwork,
-    "dos simulation": doSSim,
-    "scrape data": scrapeData,
-    "brain": toggleBrain,
-    "close": closeAllPanels
-};
-
-// Core Variables
-let activeIntervals = [];
-let cameraStream = null;
-let AUTHOR_PASSWORD = ""; // Set this later via prompt if empty
-let tools = JSON.parse(localStorage.getItem('miya_tools')) || [];
-let miya = { speak, log, show, interval };
-
-// --- Helper Functions ---
-
-function speak(text) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
-    window.speechSynthesis.speak(utterance);
-}
-
-function log(msg, type = 'info') {
-    const logEl = $('brain-log');
-    const entry = document.createElement('div');
-    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    entry.style.color = type === 'error' ? '#f00' : '#0f0';
-    logEl.appendChild(entry);
-    logEl.scrollTop = logEl.scrollHeight;
-}
-
-function show(panelId) {
-    $(panelId).classList.add('active');
-    $('overlay-close').classList.add('active');
-}
-
-function interval(func, ms) {
-    const id = setInterval(func, ms);
-    activeIntervals.push(id);
-    return id;
-}
-
-function updateCustomControls() {
-    const container = $('custom-controls');
-    container.innerHTML = ''; // Clear existing
-    
-    tools.forEach(tool => {
-        const btn = document.createElement('button');
-        btn.className = 'btn';
-        btn.textContent = tool.name.toUpperCase();
-        btn.onclick = () => runTool(tool);
-        container.appendChild(btn);
-    });
-    
-    $('tool-count').textContent = tools.length;
-}
-
-// --- Line 136-157: Switchboard ---
-
-function executeTool(name) {
-    switch(name) {
-        case 'spy': openPanel('spy'); break;
-        case 'net': scanNetwork(); break;
-        case 'dos': doSSim(); break;
-        case 'scrape': scrapeData(); break;
-        default: 
-            // Check if it's a custom tool
-            const tool = tools.find(t => t.name.toLowerCase() === name.toLowerCase());
-            if(tool) runTool(tool);
-            else log(`Unknown tool: ${name}`, 'error');
-    }
-}
-
-function closeTools() {
-    activeIntervals.forEach(id => clearInterval(id));
-    activeIntervals = [];
-    if(cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
-        cameraStream = null;
-        $('camera-feed').srcObject = null;
-    }
-}
-
-// --- Line 159-196: Original Built-in Tools ---
-
-function openPanel(type) {
-    if(type === 'spy') {
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                $('camera-feed').srcObject = stream;
-                cameraStream = stream;
-                show('spy-panel');
-                log("Camera activated");
-            })
-            .catch(err => log("Camera access denied", 'error'));
-    } else if(type === 'net') {
-        scanNetwork();
-    } else if(type === 'dos') {
-        doSSim();
-    } else if(type === 'scrape') {
-        scrapeData();
-    }
-}
-
-function scanNetwork() {
-    const logEl = $('net-log');
-    logEl.innerHTML = '';
-    show('net-panel');
-    let count = 0;
-    const ips = ['192.168.1.1', '10.0.0.5', '172.16.0.1', '192.168.4.22', '10.10.10.10'];
-    
-    const timer = setInterval(() => {
-        if(count >= ips.length) {
-            clearInterval(timer);
-            logEl.innerHTML += "\n[+] Scan Complete.";
-            return;
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startFg) {
+        if (intent != null && "STOP".equals(intent.getAction())) {
+            stopSelf();
+            return START_NOT_STICKY;
         }
-        const ip = ips[count];
-        const status = Math.random() > 0.3 ? "OPEN" : "CLOSED";
-        logEl.innerHTML += `\n[*] Scanning ${ip}... Status: ${status}`;
-        logEl.scrollTop = logEl.scrollHeight;
-        count++;
-    }, 500);
-    activeIntervals.push(timer);
-}
-
-function doSSim() {
-    show('dos-panel');
-    const bar = $('dos-bar');
-    const status = $('dos-status');
-    const logEl = $('dos-log');
-    let progress = 0;
-    
-    const timer = setInterval(() => {
-        progress += Math.random() * 5;
-        if(progress >= 100) {
-            progress = 100;
-            clearInterval(timer);
-            status.textContent = "TARGET DOWN";
-            logEl.innerHTML += "\n[+] DoS Attack Completed!";
-        } else {
-            status.textContent = `Attacking... ${Math.floor(progress)}%`;
+        if (!Settings.canDrawOverlays(this)) {
+            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            return START_STICKY;
         }
-        bar.style.width = `${progress}%`;
-        logEl.innerHTML = `Packet sent: ${Math.floor(Math.random() * 10000)} KB/s`;
-    }, 100);
-    activeIntervals.push(timer);
-}
-
-function scrapeData() {
-    show('scrape-panel');
-    const logEl = $('scrape-log');
-    logEl.innerHTML = '';
-    const data = ["User ID: 8842", "Email: admin@target.com", "IP: 192.168.x.x", "Hash: 5f4dcc3b5aa765d61d8327deb882cf99"];
-    let i = 0;
-    
-    const timer = setInterval(() => {
-        if(i >= data.length) {
-            clearInterval(timer);
-            logEl.innerHTML += "\n[+] Scraping Finished.";
-            return;
+        prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (web == null) {
+            startFg();
+            buildOverlay();
+            initTts();
+            initRecognizer();
         }
-        logEl.innerHTML += `\n> Extracted: ${data[i]}`;
-        logEl.scrollTop = logEl.scrollHeight;
-        i++;
-    }, 800);
-    activeIntervals.push(timer);
-}
-
-function closeAllPanels() {
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    $('overlay-close').classList.remove('active');
-    closeTools();
-}
-
-// --- Line 198-229: Brain Base ---
-
-function toggleBrain() {
-    $('brain-panel').classList.toggle('active');
-    $('overlay-close').classList.toggle('active');
-}
-
-async function ai(prompt) {
-    // Placeholder for actual API call
-    log("Thinking...", "info");
-    await new Promise(r => setTimeout(r, 1000)); // Fake delay
-    return "I have processed your request. The plan is ready.";
-}
-
-// --- Line 231-253: Password System ---
-
-async function auth() {
-    if(AUTHOR_PASSWORD) return true;
-    
-    const stored = localStorage.getItem('miya_auth_hash');
-    if(stored) {
-        // Simple hash check (simplified for demo)
-        const input = prompt("Enter Password:");
-        if(input && input.trim() !== "") {
-            AUTHOR_PASSWORD = input;
-            return true;
-        }
-        return false;
-    } else {
-        const pass = prompt("Set Admin Password:");
-        if(pass) {
-            AUTHOR_PASSWORD = pass;
-            localStorage.setItem('miya_auth_hash', pass); // Storing plain for demo simplicity
-            return true;
-        }
-        return false;
+        return START_STICKY;
     }
-}
 
-// --- Line 255-276: Local Brain ---
-
-const LOCAL = [
-    { name: "clock", keywords: ["time", "clock", "hour"], action: () => alert(new Date().toLocaleTimeString()) },
-    { name: "battery", keywords: ["battery", "power"], action: () => navigator.battery?.getDischargeRate() ? alert("Battery Level OK") : alert("Battery Info Unavailable") },
-    { name: "vibrate", keywords: ["vibrate", "shake"], action: () => navigator.vibrate?.([200, 100, 200]) || alert("Vibration Sent") },
-    { name: "notes", keywords: ["note", "write"], action: () => { const n = prompt("Write note:"); if(n) alert("Saved: " + n); } },
-    { name: "dice", keywords: ["roll", "dice", "random"], action: () => alert("Rolled: " + Math.floor(Math.random() * 6) + 1) },
-    { name: "location", keywords: ["where", "gps", "map"], action: () => alert("Location: Lat 28.6, Long 77.2 (Demo)") },
-    { name: "clear", keywords: ["clean", "clear", "reset"], action: () => { closeAllPanels(); log("System Cleared"); } }
-];
-
-function localBrain(request) {
-    const lowerReq = request.toLowerCase();
-    const found = LOCAL.find(t => t.keywords.some(k => lowerReq.includes(k)));
-    if(found) {
-        log(`Executing Local Tool: ${found.name}`);
-        found.action();
-        return true;
+    // ---------------- FOREGROUND NOTIFICATION ----------------
+    void startFg() {
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        nm.createNotificationChannel(new NotificationChannel("miya", "Miya", NotificationManager.IMPORTANCE_LOW));
+        Intent stop = new Intent(this, MiyaService.class).setAction("STOP");
+        PendingIntent pi = PendingIntent.getService(this, 1, stop,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Notification n = new Notification.Builder(this, "miya")
+                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                .setContentTitle("Miya chal rahi hai")
+                .setContentText("Coding / debugging / automation helper — band karne ke liye tap karo")
+                .addAction(new Notification.Action.Builder(
+                        Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                        "Band karo", pi).build())
+                .build();
+        startForeground(1, n);
     }
-    return false;
-}
 
-function learn(toolObj) {
-    // Avoid duplicates
-    if(!tools.find(t => t.name === toolObj.name)) {
-        tools.push(toolObj);
-        localStorage.setItem('miya_tools', JSON.stringify(tools));
-        updateCustomControls();
-        log(`Tool Learned: ${toolObj.name}`);
-        return true;
-    }
-    return false;
-}
+    // ---------------- OVERLAY BUBBLE ----------------
+    void buildOverlay() {
+        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        web = new WebView(this);
+        WebSettings ws = web.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        web.setWebViewClient(new WebViewClient());
+        web.setBackgroundColor(0x00000000);
+        web.addJavascriptInterface(new JsBridge(), "AndroidBridge");
 
-// --- Line 278-304: Placement Brain ---
+        int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE;
 
-const CATS = {
-    Hacking: ['scan', 'hack', 'port', 'ip'],
-    Coding: ['code', 'script', 'dev'],
-    Media: ['cam', 'video', 'audio'],
-    System: ['sys', 'os', 'cpu']
-};
+        lp = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT);
+        lp.gravity = Gravity.TOP | Gravity.START;
+        lp.x = 0;
+        lp.y = 300;
 
-function place(toolName) {
-    const lower = toolName.toLowerCase();
-    for(const [cat, kws] of Object.entries(CATS)) {
-        if(kws.some(k => lower.includes(k))) return cat;
-    }
-    return "General";
-}
-
-// --- Line 306-324: Plan ---
-
-async function makePlan() {
-    const req = $('brain-input-area').value;
-    if(!req) return;
-    
-    if(!await auth()) return;
-    
-    log("Generating Plan...");
-    const response = await ai(req);
-    $('brain-log').innerHTML += `<div>[PLAN] ${response}</div>`;
-}
-
-// --- Line 326-333: Learn Code ---
-
-function learnCode() {
-    const code = $('brain-input-area').value;
-    try {
-        // Basic syntax check
-        new Function(code);
-        log("Syntax Valid. Awaiting approval...");
-        // In a real app, this would parse and ask for approval
-    } catch(e) {
-        log("Syntax Error: " + e.message, 'error');
-    }
-}
-
-// --- Line 335-349: Approve & Run ---
-
-async function showPlan() {
-    log("Showing Plan details...");
-    alert("Plan details would be displayed here in a modal.");
-}
-
-async function approve() {
-    if(!await auth()) return;
-    log("Tool Approved & Executing...");
-    // Trigger execution of the last learned or pending tool
-}
-
-// --- Line 351-377: Run Tool Logic ---
-
-function runTool(tool) {
-    log(`Running Tool: ${tool.name}`);
-    try {
-        if(typeof tool.code === 'string') {
-            const func = new Function(tool.code);
-            func();
-        } else if (typeof tool.action === 'function') {
-            tool.action();
-        } else {
-            log("Tool has no executable code.", 'error');
-        }
-    } catch(e) {
-        onFail(tool, e);
-    }
-}
-
-function onFail(tool, error) {
-    log(`Tool Failed: ${error.message}`, 'error');
-    // Try to fix automatically or disable
-    // For now, just log it
-}
-
-// --- Line 379-407: Render & Init ---
-
-function act(btnType, toolIndex) {
-    const tool = tools[toolIndex];
-    if(btnType === 'delete') {
-        if(confirm(`Delete ${tool.name}?`)) {
-            tools.splice(toolIndex, 1);
-            localStorage.setItem('miya_tools', JSON.stringify(tools));
-            updateCustomControls();
-            log(`Deleted ${tool.name}`);
-        }
-    } else if (btnType === 'run') {
-        runTool(tool);
-    }
-}
-
-function render() {
-    updateCustomControls();
-}
-
-// Initialization
-window.onload = () => {
-    render();
-    log("System Initialized");
-    
-    // Check for password setup
-    if(!localStorage.getItem('miya_auth_hash')) {
-        // Auto-set a default password for first time use if needed
-        // Or trigger the prompt logic
-    }
-};
-
-// Voice Listening (Simplified)
-function startListening() {
-    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-    recognition.lang = 'en-US';
-    recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript.toLowerCase();
-        log(`Heard: "${transcript}"`);
-        
-        // Check commands
-        for(const [cmd, func] of Object.entries(commands)) {
-            if(transcript.includes(cmd)) {
-                func();
-                return;
+        web.setOnTouchListener((v, e) -> {
+            switch (e.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX = e.getRawX(); downY = e.getRawY();
+                    startX = lp.x; startY = lp.y; moved = false;
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    int dx = (int) (e.getRawX() - downX), dy = (int) (e.getRawY() - downY);
+                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) moved = true;
+                    lp.x = startX + dx; lp.y = startY + dy;
+                    wm.updateViewLayout(web, lp);
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    if (!moved) onBubbleTap();
+                    return true;
             }
+            return false;
+        });
+
+        wm.addView(web, lp);
+        web.loadDataWithBaseURL(null, bubbleHtml(), "text/html", "UTF-8", null);
+    }
+
+    String bubbleHtml() {
+        if (!expanded) {
+            return "<html><body style='margin:0;background:transparent'>"
+                 + "<div style='width:60px;height:60px;border-radius:50%;background:#111;"
+                 + "border:2px solid #0f0;display:flex;align-items:center;justify-content:center;"
+                 + "font-size:26px;color:#0f0;font-family:monospace'>" + (setupMode ? "⚙" : "🎤") + "</div>"
+                 + "</body></html>";
         }
-        
-        // Check custom tools
-        const foundTool = tools.find(t => transcript.includes(t.name.toLowerCase()));
-        if(foundTool) {
-            runTool(foundTool);
+        String modeBtn = setupMode
+            ? "<button onclick=\"send('normal mode')\">⬅ Normal Mode</button>"
+            : "<button onclick=\"send('setup mode')\">⚙ Setup Mode</button>";
+        return "<html><body style='margin:0;background:#000;color:#0f0;font-family:monospace;"
+            + "border:2px solid #0f0;border-radius:10px;box-sizing:border-box;padding:12px'>"
+            + "<style>button{background:#222;border:1px solid #0f0;color:#0f0;padding:10px;"
+            + "font:13px monospace;border-radius:5px;margin:3px;width:100%}"
+            + "input{background:#111;border:1px solid #0f0;color:#0f0;padding:8px;font:13px monospace;"
+            + "width:100%;box-sizing:border-box;margin:3px 0}</style>"
+            + "<div style='display:flex;justify-content:space-between;align-items:center'>"
+            + "<b>🎙️ Miya</b><button style='width:auto;padding:4px 10px' onclick=\"send('CLOSE_PANEL')\">✖</button></div>"
+            + "<button onclick=\"send('LISTEN')\">🎤 Bolo</button>"
+            + modeBtn
+            + "<button onclick=\"send('web search ' + document.getElementById('q').value)\">🔎 Web Search</button>"
+            + "<input id='q' placeholder='search query...'>"
+            + "<button onclick=\"send('security concepts')\">🎓 Security Concepts</button>"
+            + "<button onclick=\"send('apne baare me batao')\">ℹ️ About Miya</button>"
+            + "<input id='cmd' placeholder='Command type karo...' onkeydown=\"if(event.key==='Enter'){send(document.getElementById('cmd').value);document.getElementById('cmd').value='';}\">"
+            + "<button onclick=\"var v=document.getElementById('cmd').value; document.getElementById('cmd').value=''; send(v);\">▶ Bhejo</button>"
+            + "<script>function send(t){ if(t) AndroidBridge.send(t); }</script>"
+            + "</body></html>";
+    }
+
+    // Buttons se JS yahan se Java ko command bhejta hai — voice jaisa hi route hota hai
+    class JsBridge {
+        @JavascriptInterface
+        public void send(String text) {
+            ui.post(() -> {
+                if ("CLOSE_PANEL".equals(text)) { collapsePanel(); return; }
+                if ("LISTEN".equals(text)) { listenOnce(); return; }
+                handleCommand(text);
+            });
+        }
+    }
+
+    void onBubbleTap() {
+        if (busy) return;
+        if (!expanded) { expandPanel(); return; }
+    }
+
+    void expandPanel() {
+        expanded = true;
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        lp.width = (int) (dm.widthPixels * 0.8);
+        lp.height = (int) (dm.heightPixels * 0.55);
+        lp.flags = 0; // focusable banao taaki text input me keyboard aaye
+        wm.updateViewLayout(web, lp);
+        refreshBubble();
+    }
+
+    void collapsePanel() {
+        expanded = false;
+        lp.width = WindowManager.LayoutParams.WRAP_CONTENT;
+        lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        wm.updateViewLayout(web, lp);
+        refreshBubble();
+    }
+
+    // ---------------- TTS ----------------
+    void initTts() {
+        tts = new TextToSpeech(this, status -> {
+            if (status == TextToSpeech.SUCCESS) {
+                tts.setLanguage(new Locale("hi", "IN"));
+                ttsReady = true;
+            }
+        });
+    }
+
+    void speak(String text) {
+        if (ttsReady) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "miya_utt");
+    }
+
+    // ---------------- SPEECH RECOGNITION ----------------
+    void initRecognizer() {
+        rec = SpeechRecognizer.createSpeechRecognizer(this);
+    }
+
+    void listenOnce() {
+        if (listening) return;
+        listening = true;
+        Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
+
+        rec.setRecognitionListener(new RecognitionListener() {
+            @Override public void onResults(android.os.Bundle b) {
+                listening = false;
+                ArrayList<String> r = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (r != null && !r.isEmpty()) handleCommand(r.get(0));
+            }
+            @Override public void onError(int e) { listening = false; }
+            @Override public void onReadyForSpeech(android.os.Bundle b) {}
+            @Override public void onBeginningOfSpeech() {}
+            @Override public void onRmsChanged(float v) {}
+            @Override public void onBufferReceived(byte[] buf) {}
+            @Override public void onEndOfSpeech() {}
+            @Override public void onEvent(int t, android.os.Bundle b) {}
+            @Override public void onPartialResults(android.os.Bundle b) {}
+        });
+        rec.startListening(i);
+    }
+
+    // ---------------- COMMAND ROUTING ----------------
+    void handleCommand(String text) {
+        String t = text.trim();
+
+        // Password flow jo chal raha hai usko pehle handle karo
+        if (awaitingPassword) {
+            checkPassword(t);
             return;
         }
-        
-        // Check local brain
-        if(!localBrain(transcript)) {
-            log("Command not recognized. Try 'Brain' to ask me.");
-        }
-    };
-    recognition.start();
-}
 
-</script>
-</body>
-</html>
+        String low = t.toLowerCase(Locale.ROOT);
+
+        if (any(low, "setup mode", "author mode", "setup kholo", "setup on", "open setup",
+                "unlock setup", "setup chalu", "admin mode", "developer mode", "setup shuru")) {
+            askPassword("ENTER_SETUP");
+            return;
+        }
+        if (any(low, "password badlo", "naya password", "change password", "password change karo",
+                "reset password", "password update karo", "naya pass", "password badal do",
+                "set new password", "password replace karo")) {
+            if (!setupMode) { askPassword("SET_PASSWORD"); return; }
+            promptNewPassword();
+            return;
+        }
+        if (any(low, "normal mode", "setup band", "exit setup", "close setup", "normal pe aao",
+                "setup off", "band karo setup", "wapas normal", "normal wapas", "setup bandh")) {
+            setupMode = false;
+            refreshBubble();
+            speak("Normal mode me wapas");
+            return;
+        }
+        if (any(low, "apne baare", "khud ke baare", "about yourself", "tumhare baare", "tum kya ho",
+                "apna parichay", "who are you", "what are you", "apne features", "introduce yourself")) {
+            aboutSelf();
+            return;
+        }
+        if (low.startsWith("search ") || low.startsWith("web search ") || low.startsWith("google ")
+                || low.startsWith("dhoondo ")) {
+            String q = t.replaceFirst("(?i)^(web\\s+)?(search|google|dhoondo)\\s+(for\\s+)?", "").trim();
+            webSearch(q);
+            return;
+        }
+        if (low.equals("web search") || low.equals("search")) {
+            speak("Kya search karu? Bolo: search, phir apni query");
+            return;
+        }
+        if (any(low, "security concept", "ethical hacking", "hacking samjhao", "security samjhao",
+                "cyber security", "hacking ke baare", "explain hacking", "security education",
+                "defense concept", "hacking kya hota")) {
+            secConcepts();
+            return;
+        }
+        if (setupMode && (low.startsWith("termux ") || low.startsWith("shell "))) {
+            // Setup mode me hi Termux command chalegi, aur wo bhi sirf coding/automation daayre ki
+            runTermux(t.replaceFirst("(?i)^(termux|shell)\\s+", "").trim());
+            return;
+        }
+
+        askAI(t);
+    }
+
+    // ---- Khud ke baare me — code ke voice commands se hi banta hai, hardcoded sahi rehta hai ----
+    void aboutSelf() {
+        StringBuilder s = new StringBuilder();
+        s.append("Main coding, debugging aur automation me madad karti hoon. ");
+        s.append("Mere do mode hain: Normal, jisme sawaal-jawab hota hai; aur Setup, jisme password se unlock karke Termux commands aur password badal sakte ho. ");
+        s.append("Mere voice commands: 'setup mode' se setup kholta hai, 'normal mode' se wapas aata hai, ");
+        s.append("'password badlo' se naya password set hota hai, 'termux' se shuru hota command Setup mode me shell par jata hai, ");
+        s.append("'search' bolkar query bolo to web search khul jata hai, 'security concepts' ya 'ethical hacking' bolne par main concepts sirf samajh aur bachav ke liye samjhati hoon, ");
+        s.append("aur baaki jo bhi bolo wo AI ko coding/debugging sawaal ki tarah jata hai. ");
+        s.append("Main attack, exploit ya malware commands kabhi nahi deti.");
+        speak(s.toString());
+    }
+
+    // ---- Web Search ----
+    void webSearch(String q) {
+        if (q == null || q.trim().isEmpty()) { speak("Kya search karu, bolo"); return; }
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://www.google.com/search?q=" + Uri.encode(q.trim())));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            speak("Search kar rahi hoon: " + q);
+        } catch (Exception e) {
+            speak("Search nahi khul paya");
+        }
+    }
+
+    // ---- Security Concepts: sirf samajh/bachav, hardcoded — AI se nahi, kabhi attack command nahi ----
+    void secConcepts() {
+        speak("Ye sirf samajhne aur bachav ke liye hai, main asli attack command kabhi nahi deti. " +
+            "DoS ka matlab hai server ko itne fake requests bhejna ki wo asli users ke liye ruk jaye, " +
+            "bachav rate limiting aur firewall se hota hai. " +
+            "Phishing matlab fake login page se password churana, bachav URL dhyan se dekhna aur " +
+            "two factor authentication hai. " +
+            "Malware matlab bina permission ke device me ghuskar nuksan karne wala software, " +
+            "bachav sirf trusted source se app install karna hai. " +
+            "Network scanning matlab network par khule ports dekhna, defensive use khud ke network " +
+            "ko audit karna hai. " +
+            "Password security matlab lamba, unique password aur password manager use karna.");
+    }
+
+    // ---- Ek se zyada phrase variations check karne ka helper ----
+    boolean any(String text, String... options) {
+        for (String o : options) if (text.contains(o)) return true;
+        return false;
+    }
+
+    void refreshBubble() {
+        if (web != null) web.loadDataWithBaseURL(null, bubbleHtml(), "text/html", "UTF-8", null);
+    }
+
+    // ---------------- PASSWORD ----------------
+    String sha256(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] d = md.digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte x : d) sb.append(String.format("%02x", x));
+            return sb.toString();
+        } catch (Exception e) { return String.valueOf(s.hashCode()); }
+    }
+
+    void askPassword(String action) {
+        pendingAction = action;
+        awaitingPassword = true;
+        String saved = prefs.getString(KEY_PASS_HASH, null);
+        if (saved == null) {
+            speak("Pehli baar hai. Apna naya password bolo.");
+        } else {
+            speak("Password bolo");
+        }
+    }
+
+    void checkPassword(String spoken) {
+        awaitingPassword = false;
+        String saved = prefs.getString(KEY_PASS_HASH, null);
+        String action = pendingAction; pendingAction = null;
+
+        if (saved == null) {
+            // pehli baar — jo bhi bola wahi set ho jata hai
+            prefs.edit().putString(KEY_PASS_HASH, sha256(spoken)).apply();
+            speak("Password set ho gaya");
+            if ("ENTER_SETUP".equals(action)) { setupMode = true; refreshBubble(); speak("Setup mode on"); }
+            return;
+        }
+
+        if (sha256(spoken).equals(saved)) {
+            if ("ENTER_SETUP".equals(action)) { setupMode = true; refreshBubble(); speak("Setup mode on"); }
+            else if ("SET_PASSWORD".equals(action)) { promptNewPassword(); }
+            else if (action != null && action.startsWith("RUN_TERMUX:")) {
+                runTermuxNow(action.substring(11));
+            }
+        } else {
+            speak("Galat password");
+        }
+    }
+
+    void promptNewPassword() {
+        awaitingPassword = true;
+        pendingAction = "SET_PASSWORD_VALUE";
+        speak("Naya password bolo");
+    }
+
+    // ---------------- TERMUX (coding / automation ke liye hi) ----------------
+    void runTermux(String cmd) {
+        if (!setupMode) { askPassword("RUN_TERMUX:" + cmd); return; }
+        runTermuxNow(cmd);
+    }
+
+    void runTermuxNow(String cmd) {
+        net.execute(() -> {
+            try {
+                if (!termuxConnected) connectTermux();
+                termuxOut.write((cmd + "\n").getBytes(StandardCharsets.UTF_8));
+                termuxOut.flush();
+                BufferedReader r = new BufferedReader(new InputStreamReader(termuxSocket.getInputStream()));
+                StringBuilder out = new StringBuilder();
+                String line; int lines = 0;
+                while ((line = r.readLine()) != null && lines < 30) { out.append(line).append('\n'); lines++; }
+                ui.post(() -> speak("Command chal gaya"));
+            } catch (Exception e) {
+                ui.post(() -> speak("Termux se connect nahi ho paya: " + e.getMessage()));
+            }
+        });
+    }
+
+    void connectTermux() throws Exception {
+        termuxSocket = new Socket(TERMUX_HOST, TERMUX_PORT);
+        termuxOut = termuxSocket.getOutputStream();
+        termuxConnected = true;
+    }
+
+    // ---------------- AI CALL (coding/debug/automation persona only) ----------------
+    void askAI(String userText) {
+        busy = true;
+        net.execute(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("system", PERSONA_MIYA);
+                JSONArray msgs = new JSONArray();
+                JSONObject m = new JSONObject();
+                m.put("role", "user");
+                m.put("content", userText);
+                msgs.put(m);
+                body.put("messages", msgs);
+
+                URL url = new URL(WORKER_URL);
+                HttpURLConnection c = (HttpURLConnection) url.openConnection();
+                c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type", "application/json");
+                if (!APP_KEY.isEmpty()) c.setRequestProperty("x-app-key", APP_KEY);
+                c.setDoOutput(true);
+                c.getOutputStream().write(body.toString().getBytes(StandardCharsets.UTF_8));
+
+                BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = r.readLine()) != null) sb.append(line);
+
+                JSONObject resp = new JSONObject(sb.toString());
+                String reasoning = resp.optString("reasoning", resp.optString("text", ""));
+                history.add(resp);
+                ui.post(() -> { busy = false; if (!reasoning.isEmpty()) speak(reasoning); });
+            } catch (Exception e) {
+                ui.post(() -> { busy = false; speak("Samajh nahi payi: " + e.getMessage()); });
+            }
+        });
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (web != null && wm != null) wm.removeView(web);
+        if (rec != null) rec.destroy();
+        if (tts != null) tts.shutdown();
+        net.shutdownNow();
+    }
+}

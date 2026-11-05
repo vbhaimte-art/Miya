@@ -7,1734 +7,488 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
-import android.content.pm.ServiceInfo;
-import android.graphics.Color;
+import android.content.SharedPreferences;
 import android.graphics.PixelFormat;
 import android.graphics.drawable.Icon;
-import android.hardware.camera2.CameraCharacteristics;
-import android.hardware.camera2.CameraManager;
-import android.media.AudioManager;
+import android.net.Uri;
 import android.os.Build;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.provider.AlarmClock;
+import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
-import android.speech.tts.UtteranceProgressListener;
 import android.view.Gravity;
-import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.WindowManager;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
-import androidx.webkit.WebViewAssetLoader;
-
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.Socket;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
+/**
+ * Miya — coding / debugging / system-automation voice helper.
+ * Do modes, dono sirf isi daayre tak: coding, debugging, Termux commands, automation.
+ *   NORMAL mode  -> sawaal poochna, chhote jawab, saadi madad.
+ *   SETUP mode   -> naye tools/automations jodna, Termux se judna, settings badalna.
+ * SETUP mode ka har sensitive action password maangta hai. Password kisi ko
+ * attack/exploit cheezein karne ki ijazat nahi deta — ye sirf is baat ka taala
+ * hai ki app ki setup kaun badal sakta hai.
+ */
 public class MiyaService extends Service {
-    static final String WORKER = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
-    static final String APP_KEY = "PLACEHOLDER";
-    static final String PERSONA = "तुम \"मिया\" हो, मेरी निजी असिस्टेंट और दोस्त। मुझसे जिस भाषा में बात करूँ (हिंदी या English), उसी भाषा में जवाब दो। "
-            + "जवाब छोटे रखो, 1-3 वाक्य, क्योंकि तुम बोलकर जवाब देती हो। इमोजी और markdown मत इस्तेमाल करो। "
-            + "अपनी सीधी और ईमानदार राय दो; मेरी हर बात से सहमत मत होना, ग़लत लगे तो सलीक़े से टोको।";
-    static final long DANCE_MAX_MS = 30000;
-    static final long IDLE_HIDE_MS = 500;      // 500 = आधा सेकंड, कमांड न मिले तो इतनी देर बाद चली जाएगी
-    static final long CMD_WINDOW_MS = 10000;   // इतनी देर तक बिना नाम लिए कमांड चलेगा
-    static final String[] THRON_W = {"थ्रोन", "थ्रॉन", "थ्रोण", "थोर्न", "थॉर्न", "ट्रोन", "throne", "thron", "thorn"};
-    static final String THRON_PERSONA = "तुम \"थ्रोन\" हो, सुरक्षा और बैटरी संभालने वाला गार्ड। मुझे हमेशा \"बॉस\" बोलो। शांत और रक्षक अंदाज़ में बात करो, जिस भाषा में मैं बोलूँ उसी में। जवाब 1-2 वाक्य के रखो, इमोजी और markdown मत इस्तेमाल करो।";
 
-    static final String[][] NUMW = {
-        {"एक", "1"}, {"दो", "2"}, {"तीन", "3"}, {"चार", "4"}, {"पाँच", "5"}, {"पांच", "5"},
-        {"छह", "6"}, {"छः", "6"}, {"छे", "6"}, {"सात", "7"}, {"आठ", "8"}, {"नौ", "9"},
-        {"दस", "10"}, {"ग्यारह", "11"}, {"बारह", "12"}, {"पंद्रह", "15"}, {"बीस", "20"},
-        {"तीस", "30"}, {"पैंतालीस", "45"}
-    };
+    // ---------------- CONFIG ----------------
+    static final String WORKER_URL = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
+    static final String APP_KEY = ""; // build ke time "Insert token" step isme secrets.MIYA_TOKEN daal deta hai
+    static final String TERMUX_HOST = "127.0.0.1";
+    static final int TERMUX_PORT = 5555;
+    static final String PREFS = "miya_prefs";
+    static final String KEY_PASS_HASH = "author_pass_hash";
+    static final String KEY_MEM = "miya_memory"; // seekhe hue tools (JSON array)
 
-    static final String[][] APPS = {
-        {"फोनपे", "phonepe"}, {"फोन पे", "phonepe"}, {"पेटीएम", "paytm"},
-        {"अमेज़न", "amazon"}, {"अमेजन", "amazon"}, {"फ्लिपकार्ट", "flipkart"},
-        {"ज़ोमैटो", "zomato"}, {"जोमैटो", "zomato"}, {"स्विगी", "swiggy"},
-        {"हॉटस्टार", "hotstar"}, {"मीशो", "meesho"}, {"उबर", "uber"}, {"ओला", "ola"},
-        {"ट्विटर", "twitter"}, {"लिंक्डइन", "linkedin"}, {"कॉन्टैक्ट", "contacts"}, {"मैसेज", "messages"},
-        {"यूट्यूब", "youtube"}, {"यू ट्यूब", "youtube"}, {"व्हाट्सऐप", "whatsapp"}, {"व्हाट्सएप", "whatsapp"},
-        {"वॉट्सऐप", "whatsapp"}, {"वाट्सएप", "whatsapp"}, {"व्हाट्स", "whatsapp"}, {"इंस्टाग्राम", "instagram"},
-        {"इंस्टा", "instagram"}, {"कैमरा", "camera"}, {"गूगल", "google"}, {"क्रोम", "chrome"},
-        {"मैप्स", "maps"}, {"मैप", "maps"}, {"जीमेल", "gmail"}, {"फोन", "phone"}, {"फ़ोन", "phone"},
-        {"सेटिंग", "settings"}, {"स्नैपचैट", "snapchat"}, {"फेसबुक", "facebook"},
-        {"डिस्कॉर्ड", "discord"}, {"टेलीग्राम", "telegram"}, {"क्लॉड", "claude"}, {"क्लाउड", "claude"},
-        {"गैलरी", "gallery"}, {"कैलकुलेटर", "calculator"}, {"घड़ी", "clock"}, {"क्लॉक", "clock"},
-        {"स्पॉटिफाई", "spotify"}, {"नेटफ्लिक्स", "netflix"}, {"गिटहब", "github"}, {"कैलेंडर", "calendar"},
-        {"प्ले स्टोर", "play store"}, {"ब्राउज़र", "browser"}
-    };
+    // Persona: sirf coding / debugging / automation. Attack, exploit, malware,
+    // network-breaking commands iska hissa nahi hain — na normal mode me, na setup me.
+    static final String PERSONA_MIYA =
+        "Tum 'Miya' ho, ek coding, debugging aur system-automation assistant. User tumse jaise " +
+        "ek normal insaan se baat karta hai waise hi baat karo — natural Hindi/Hinglish, jaisi " +
+        "boli jaati hai waisi, formal ya robotic nahi. Jawab ki lambai topic ke hisaab se rakho: " +
+        "seedha sawaal ho to chhota jawab, code ya samjhana ho to jitna chahiye utna. Apni baat " +
+        "khud ki zabaan me kaho, kisi template ya fixed structure me mat bandho. " +
+        "Tumhara kaam: code likhna/samjhana, bugs dhoondhna, Termux shell commands " +
+        "(file management, scheduling, scripting, app automation) banana, aur in sab " +
+        "cheezon ko natural tarike se samjhana. Tum kabhi bhi kisi network, device, " +
+        "account ya system ko nuksan pahunchane wale commands, malware, exploit ya attack " +
+        "tareeke nahi dete — aisi request aaye to vo sirf concept level par, bachav (defense) " +
+        "ke nazariye se samjhati ho, actual command ya code kabhi nahi deti. " +
+        "Tum khud ek Android foreground-service app ho (MiyaService.java) jo screen par ek chhota " +
+        "floating bubble dikhata hai, voice se sunta hai, TTS se bolta hai, aur password-gated " +
+        "Setup mode me Termux se judkar shell commands chalata hai. Jab user code, bug ya feature " +
+        "ke baare me poochhe, tum ye context yaad rakhkar jawab do. " +
+        "Hamesha JSON format me jawab do (ye sirf app ke parsing ke liye hai, isse user ko " +
+        "dikhta kuch nahi — 'reasoning' me likha hua text hi bola jaata hai, isliye wahan " +
+        "poora natural jawab likho, chhota nahi): " +
+        "{\"action\":\"SPEAK|RUN_TERMUX|SHOW_CODE|NONE\",\"payload\":\"command ya code\",\"reasoning\":\"poora natural bolne wala jawab\"}";
 
+    // ---------------- STATE ----------------
     WindowManager wm;
     WebView web;
     WindowManager.LayoutParams lp;
     final Handler ui = new Handler(Looper.getMainLooper());
     SpeechRecognizer rec;
     TextToSpeech tts;
-    boolean ttsReady = false, speaking = false, busy = false, listening = false, dancing = false, torchOn = false;
-    boolean preferOffline = true;
-    boolean wakeOn = true, passive = false, awaitCmd = false;
-    long cmdUntil = 0;
-
-    final Runnable wakeTick = new Runnable() {
-        public void run() {
-            if (web == null) return;
-            if (wakeOn && screenOn() && !listening && !speaking && !busy
-                    && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
-                            == PackageManager.PERMISSION_GRANTED
-                    && SpeechRecognizer.isRecognitionAvailable(MiyaService.this)) {
-                passive = !awaitCmd;
-                awaitCmd = false;
-                listen();
-            }
-            ui.postDelayed(this, 700);
-        }
-    };
+    boolean ttsReady = false, listening = false, busy = false;
+    boolean setupMode = false; // password se unlock hota hai, ek baar unlock rehta hai jab tak service chale
     final List<JSONObject> history = new ArrayList<>();
     final ExecutorService net = Executors.newSingleThreadExecutor();
+    SharedPreferences prefs;
+
+    // Termux
+    boolean termuxConnected = false;
+    Socket termuxSocket;
+    OutputStream termuxOut;
+
+    // Drag state (overlay bubble)
     float downX, downY;
     int startX, startY;
     boolean moved;
-    final Runnable danceOff = () -> setDance(false);
+
+    // Pending password flow: jab koi setup action maanga jaaye to pehle ye bharna padta hai
+    String pendingAction = null; // "ENTER_SETUP" | "SET_PASSWORD" | "RUN_TERMUX:<cmd>"
+    boolean awaitingPassword = false;
 
     @Override
-    public IBinder onBind(Intent i) {
-        return null;
-    }
+    public IBinder onBind(Intent i) { return null; }
 
     @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
+    public int onStartCommand(Intent intent, int flags, int startFg) {
         if (intent != null && "STOP".equals(intent.getAction())) {
             stopSelf();
             return START_NOT_STICKY;
         }
-        if (web != null) showChar();
+        if (!Settings.canDrawOverlays(this)) {
+            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            return START_STICKY;
+        }
+        prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         if (web == null) {
             startFg();
             buildOverlay();
             initTts();
-            loadHist();
-            ui.postDelayed(wakeTick, 3000);
-            startThronMonitor();
-            startPkgWatch();
-            startNetWatch();
-            applySize();
-            holdFor(4000);
-            ui.postDelayed(idleTick, 1000);
-        }
-        if (intent != null && "ANALYZE".equals(intent.getAction())) {
-            ui.postDelayed(() -> analyzeShare(), 1000);
+            initRecognizer();
         }
         return START_STICKY;
     }
 
+    // ---------------- FOREGROUND NOTIFICATION ----------------
     void startFg() {
         NotificationManager nm = getSystemService(NotificationManager.class);
-        nm.createNotificationChannel(new NotificationChannel("miya", "मिया", NotificationManager.IMPORTANCE_LOW));
+        nm.createNotificationChannel(new NotificationChannel("miya", "Miya", NotificationManager.IMPORTANCE_LOW));
         Intent stop = new Intent(this, MiyaService.class).setAction("STOP");
-        PendingIntent pi = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent pi = PendingIntent.getService(this, 1, stop,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification n = new Notification.Builder(this, "miya")
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-                .setContentTitle("मिया चल रही है")
-                .setContentText("बंद करने के लिए नीचे का बटन दबाएँ")
+                .setContentTitle("Miya chal rahi hai")
+                .setContentText("Coding / debugging / automation helper — band karne ke liye tap karo")
                 .addAction(new Notification.Action.Builder(
-                        Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel), "बंद करें", pi).build())
+                        Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                        "Band karo", pi).build())
                 .build();
-        if (Build.VERSION.SDK_INT >= 30) {
-            try {
-                startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
-            } catch (Exception e) {
-                startForeground(1, n);
-            }
-        } else {
-            startForeground(1, n);
-        }
+        startForeground(1, n);
     }
 
+    // ---------------- OVERLAY BUBBLE ----------------
     void buildOverlay() {
-        final float d = getResources().getDisplayMetrics().density;
+        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
         web = new WebView(this);
-        web.setBackgroundColor(Color.TRANSPARENT);
-        WebSettings s = web.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setMediaPlaybackRequiresUserGesture(false);
-        final WebViewAssetLoader loader = new WebViewAssetLoader.Builder()
-                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
-                .build();
-        web.setWebViewClient(new WebViewClient() {
-            @Override
-            public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
-                return loader.shouldInterceptRequest(r.getUrl());
-            }
-        });
-        web.loadUrl("https://appassets.androidplatform.net/assets/avatar.html");
+        WebSettings ws = web.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        web.setWebViewClient(new WebViewClient());
+        web.setBackgroundColor(0x00000000);
+
+        int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE;
 
         lp = new WindowManager.LayoutParams(
-                (int) (230 * d), (int) (320 * d),
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                        | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.START;
-        lp.x = 40;
-        lp.y = 400;
+        lp.x = 0;
+        lp.y = 300;
 
         web.setOnTouchListener((v, e) -> {
-            switch (e.getActionMasked()) {
+            switch (e.getAction()) {
                 case MotionEvent.ACTION_DOWN:
-                    startX = lp.x;
-                    startY = lp.y;
-                    downX = e.getRawX();
-                    downY = e.getRawY();
-                    moved = false;
-                    break;
+                    downX = e.getRawX(); downY = e.getRawY();
+                    startX = lp.x; startY = lp.y; moved = false;
+                    return true;
                 case MotionEvent.ACTION_MOVE:
-                    float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
-                    if (Math.abs(dx) > 10 * d || Math.abs(dy) > 10 * d) moved = true;
-                    if (moved) {
-                        lp.x = startX + (int) dx;
-                        lp.y = startY + (int) dy;
-                        wm.updateViewLayout(web, lp);
-                    }
-                    break;
+                    int dx = (int) (e.getRawX() - downX), dy = (int) (e.getRawY() - downY);
+                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) moved = true;
+                    lp.x = startX + dx; lp.y = startY + dy;
+                    wm.updateViewLayout(web, lp);
+                    return true;
                 case MotionEvent.ACTION_UP:
-                    if (!moved) onTap();
-                    break;
+                    if (!moved) onBubbleTap();
+                    return true;
             }
-            return true;
+            return false;
         });
-        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+
         wm.addView(web, lp);
+        web.loadDataWithBaseURL(null, bubbleHtml(), "text/html", "UTF-8", null);
     }
 
+    String bubbleHtml() {
+        return "<html><body style='margin:0;background:transparent'>"
+             + "<div style='width:60px;height:60px;border-radius:50%;background:#111;"
+             + "border:2px solid #0f0;display:flex;align-items:center;justify-content:center;"
+             + "font-size:26px;color:#0f0;font-family:monospace'>" + (setupMode ? "⚙" : "🎤") + "</div>"
+             + "</body></html>";
+    }
+
+    void onBubbleTap() {
+        if (busy) return;
+        if (awaitingPassword) {
+            // Tap ki jagah voice se password lega — listenOnce() already password flow ko jaanta hai.
+            listenOnce();
+            return;
+        }
+        listenOnce();
+    }
+
+    // ---------------- TTS ----------------
     void initTts() {
-        tts = new TextToSpeech(this, st -> {
-            if (st == TextToSpeech.SUCCESS) {
+        tts = new TextToSpeech(this, status -> {
+            if (status == TextToSpeech.SUCCESS) {
                 tts.setLanguage(new Locale("hi", "IN"));
-                tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-                    @Override
-                    public void onStart(String id) {
-                        ui.post(() -> { speaking = true; js("setSpeaking(true)"); });
-                    }
-
-                    @Override
-                    public void onDone(String id) {
-                        ui.post(() -> { speaking = false; js("setSpeaking(false)"); });
-                    }
-
-                    @Override
-                    public void onError(String id) {
-                        ui.post(() -> { speaking = false; js("setSpeaking(false)"); });
-                    }
-                });
                 ttsReady = true;
             }
         });
     }
 
-    void js(final String code) {
-        ui.post(() -> {
-            if (web != null) web.evaluateJavascript(code, null);
-        });
+    void speak(String text) {
+        if (ttsReady) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "miya_utt");
     }
 
-    void say(String t) {
-        showChar();
-        cmdUntil = System.currentTimeMillis() + CMD_WINDOW_MS;
-        js("setText(" + JSONObject.quote(t) + ")");
-      speak(t);
+    // ---------------- SPEECH RECOGNITION ----------------
+    void initRecognizer() {
+        rec = SpeechRecognizer.createSpeechRecognizer(this);
     }
 
-    void setDance(boolean on) {
-        dancing = on;
-        ui.removeCallbacks(danceOff);
-        if (on) ui.postDelayed(danceOff, DANCE_MAX_MS);
-        js("setDancing(" + on + ")");
-    }
-
-    void onTap() {
-        markActive();
-        if (speaking) {
-            stopVoice();
-            speaking = false;
-            js("setSpeaking(false)");
-            return;
-        }
-        if (busy) return;
-        if (listening) {
-            if (!passive) return;
-            try { rec.cancel(); } catch (Exception e) { }
-            listening = false;
-        }
-        passive = false;
-        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            js("setStatus('माइक की अनुमति नहीं है। ऐप खोलकर अनुमति दें')");
-            return;
-        }
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            js("setStatus('इस फ़ोन में आवाज़ पहचान उपलब्ध नहीं है')");
-            return;
-        }
-        listen();
-    }
-
-    void listen() {
-        if (rec == null) {
-            rec = SpeechRecognizer.createSpeechRecognizer(this);
-            rec.setRecognitionListener(new RecognitionListener() {
-                public void onReadyForSpeech(Bundle p) { }
-                public void onBeginningOfSpeech() { }
-                public void onRmsChanged(float v) { }
-                public void onBufferReceived(byte[] b) { }
-                public void onEndOfSpeech() { }
-                public void onPartialResults(Bundle b) { }
-                public void onEvent(int t, Bundle b) { }
-
-                public void onError(int code) {
-                    listening = false;
-                    if ((code == 11 || code == 12 || code == 13) && preferOffline) {
-                        preferOffline = false;
-                        try { rec.destroy(); } catch (Exception e) { }
-                        rec = null;
-                        ui.postDelayed(() -> listen(), 300);
-                        return;
-                    }
-                    if (passive) {
-                        if (code == 8 || code == 5 || code == 11) {
-                            try { rec.destroy(); } catch (Exception e) { }
-                            rec = null;
-                        }
-                        return;
-                    }
-                    if (code == 8 && rec != null) rec.cancel();
-                    String why;
-                    switch (code) {
-                        case 1: why = "नेटवर्क टाइमआउट"; break;
-                        case 2: why = "नेटवर्क की दिक्कत"; break;
-                        case 3: why = "माइक की दिक्कत"; break;
-                        case 4: why = "सर्वर की दिक्कत"; break;
-                        case 6: why = "कुछ बोला नहीं गया"; break;
-                        case 7: why = "समझ नहीं आया"; break;
-                        case 8: why = "पहचान व्यस्त है"; break;
-                        case 9: why = "माइक की अनुमति नहीं है"; break;
-                        case 10: why = "बहुत ज़्यादा अनुरोध"; break;
-                        case 11: why = "आवाज़ सेवा बंद हो गई"; break;
-                        case 12: case 13: why = "भाषा उपलब्ध नहीं"; break;
-                        default: why = "अज्ञात"; break;
-                    }
-                    js("setStatus(" + JSONObject.quote("त्रुटि " + code + ": " + why + ", फिर दबाइए") + ")");
-                }
-
-                public void onResults(Bundle b) {
-                    listening = false;
-                    ArrayList<String> r = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    if (passive) { onWake(r); return; }
-                    if (r == null || r.isEmpty()) {
-                        js("setStatus('समझ नहीं आया, फिर दबाइए')");
-                        return;
-                    }
-                    handle(r, true);
-                }
-            });
-        }
+    void listenOnce() {
+        if (listening) return;
+        listening = true;
         Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
-        i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
-        i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline);
-        if (!passive) js("setStatus('सुन रही हूँ…')");
-        listening = true;
+
+        rec.setRecognitionListener(new RecognitionListener() {
+            @Override public void onResults(android.os.Bundle b) {
+                listening = false;
+                ArrayList<String> r = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (r != null && !r.isEmpty()) onHeard(r.get(0));
+            }
+            @Override public void onError(int e) { listening = false; }
+            @Override public void onReadyForSpeech(android.os.Bundle b) {}
+            @Override public void onBeginningOfSpeech() {}
+            @Override public void onRmsChanged(float v) {}
+            @Override public void onBufferReceived(byte[] buf) {}
+            @Override public void onEndOfSpeech() {}
+            @Override public void onEvent(int t, android.os.Bundle b) {}
+            @Override public void onPartialResults(android.os.Bundle b) {}
+        });
         rec.startListening(i);
     }
 
-    // ---------- कमांड पहचान ----------
+    // ---------------- COMMAND ROUTING ----------------
+    void onHeard(String text) {
+        String t = text.trim();
 
-    boolean has(String s, String... ws) {
-        for (String w : ws) if (s.contains(w)) return true;
-        return false;
-    }
-
-    void quiet() {
-        js("(function(){var b=document.getElementById('bub');if(b)b.style.display='none';})()");
-    }
-
-    // 0 = डांस कमांड नहीं, 1 = डांस चालू, 2 = डांस बंद
-    int danceCmd(String raw) {
-        String s = raw.toLowerCase(Locale.ROOT);
-        boolean stopW = has(s, "रुक", "बंद", "बन्द", "रोक", "बस कर", "stop", "band");
-        boolean danceW = has(s, "डांस", "डान्स", "डैंस", "नाच", "dance");
-        if (stopW && (danceW || dancing)) return 2;
-        if (danceW) return 1;
-        return 0;
-    }
-
-    int modelCmd(String raw) {
-        String s = raw.toLowerCase(Locale.ROOT);
-        if (has(s, THRON_W)) {
-            boolean come = has(s, "आजा", "आ जा", "आओ", "आइए", "बुला", "aajao", "aa jao", "ajao", "aao");
-            if (!come && has(s, "जाओ", "जाइए", "वापस", "चले जा", "jao", "jaao")) return 2;
-            return 3;
-        }
-        if (has(s, "योर", "यॉर", "यौर", "yor")) return 1;
-        if (has(s, "वापस", "पहले वाली", "पुरानी", "मिया बन", "miya ban", "wapas")) return 2;
-        return 0;
-    }
-
-    boolean hasWake(String s) {
-        return has(s, "मिया", "मीया", "miya", "योर", "यॉर", "यौर", "yor") || has(s, THRON_W);
-    }
-
-    String nameOf(List<String> alts) {
-        for (String a : alts) {
-            String s = a.toLowerCase(Locale.ROOT);
-            if (has(s, THRON_W)) return "thron";
-            if (has(s, "योर", "यॉर", "यौर", "yor")) return "yor";
-            if (has(s, "मिया", "मीया", "miya")) return "miya";
-        }
-        return null;
-    }
-
-    void onWake(List<String> alts) {
-        if (alts == null || alts.isEmpty()) return;
-        boolean hit = false;
-        for (String a : alts) {
-            if (hasWake(a.toLowerCase(Locale.ROOT))) { hit = true; break; }
-        }
-        if (!hit) {
-            // नाम नहीं लिया, पर अभी बात चल रही है: सिर्फ़ फ़ोन के कमांड चलाओ
-            if (System.currentTimeMillis() < cmdUntil) {
-                cmdUntil = System.currentTimeMillis() + CMD_WINDOW_MS;
-                handle(alts, false);
-            }
+        // Password flow jo chal raha hai usko pehle handle karo
+        if (awaitingPassword) {
+            checkPassword(t);
             return;
         }
-        showChar();
-        cmdUntil = System.currentTimeMillis() + CMD_WINDOW_MS;
-        String rest = alts.get(0).toLowerCase(Locale.ROOT)
-                .replaceAll("मिया|मीया|miya|योर|यॉर|यौर|yor|थ्रोन|थ्रॉन|थ्रोण|थोर्न|थॉर्न|ट्रोन|throne|thron|thorn", " ")
-                .replaceAll("[\\s,।.!?]+", " ").trim();
-        if (rest.length() < 2) {
-            String nc = nameOf(alts);
-            if (nc != null && !nc.equals(curChar)) {
-                js("setModel('" + (nc.equals("miya") ? "model" : nc) + "')");
-                switchChar(nc);
-            }
-            awaitCmd = true;
-            js("setStatus('जी?')");
-            ui.removeCallbacks(wakeTick);
-            ui.postDelayed(wakeTick, 300);
-        } else {
-            handle(alts, true);
-        }
-    }
 
-    // ---- Miya, Yor aur Thron ki alag yaadasht ----
-    String curChar = "miya";
-    static final String YOR_STYLE = ""; // yahan Yor ka andaaz likh sakte ho
+        String low = t.toLowerCase(Locale.ROOT);
 
-    android.content.SharedPreferences store() {
-        return getSharedPreferences("miya_store", MODE_PRIVATE);
-    }
-
-    String personaNow() {
-        String base;
-        if (curChar.equals("yor")) {
-            base = PERSONA.replace("\"मिया\"", "\"योर\"") + YOR_STYLE;
-        } else if (curChar.equals("thron")) {
-            base = THRON_PERSONA;
-        } else {
-            base = PERSONA;
-        }
-        String mem = store().getString("mem_" + curChar, "");
-        if (mem.isEmpty()) return base;
-        return base + "\nमेरे बारे में तुम्हें ये बातें याद हैं, इनका ध्यान रखो:\n" + mem;
-    }
-
-    void saveHist() {
-        try {
-            JSONArray a = new JSONArray();
-            synchronized (history) {
-                int from = Math.max(0, history.size() - 40);
-                for (int i = from; i < history.size(); i++) a.put(history.get(i));
-            }
-            store().edit().putString("hist_" + curChar, a.toString()).apply();
-        } catch (Exception e) { }
-    }
-
-    void loadHist() {
-        synchronized (history) {
-            history.clear();
-            try {
-                String s = store().getString("hist_" + curChar, null);
-                if (s != null) {
-                    JSONArray a = new JSONArray(s);
-                    for (int i = 0; i < a.length(); i++) history.add(a.getJSONObject(i));
-                }
-            } catch (Exception e) { }
-        }
-    }
-
-    void switchChar(String c) {
-        if (c.equals(curChar)) return;
-        saveHist();
-        curChar = c;
-        loadHist();
-        applySize();
-    }
-
-    String tokClean(String s, String... stop) {
-        List<String> st = Arrays.asList(stop);
-        StringBuilder sb = new StringBuilder();
-        for (String t : s.split("[\\s,।.!?]+")) {
-            if (!t.isEmpty() && !st.contains(t)) sb.append(t).append(' ');
-        }
-        return sb.toString().trim();
-    }
-
-    String memCmd(String s) {
-        String key = "mem_" + curChar;
-        if (has(s, "सब भूल", "याद मिटा", "याद साफ")) {
-            store().edit().remove(key).remove("hist_" + curChar).apply();
-            synchronized (history) { history.clear(); }
-            return "ठीक है, सब भूल गई।";
-        }
-        if (has(s, "क्या याद है", "क्या याद रखा", "मेरे बारे में क्या")) {
-            String m = store().getString(key, "").trim();
-            return m.isEmpty() ? "अभी मुझे कुछ याद नहीं है।" : "मुझे ये याद है: " + m.replace("\n", ", ");
-        }
-        if (has(s, "याद रख", "yaad rakh", "remember")) {
-            String fact = tokClean(s, "मिया", "miya", "योर", "यॉर", "yor", "ये", "यह", "बात",
-                    "याद", "रखना", "रखो", "रख", "लो", "करो", "कर", "remember", "this");
-            if (fact.length() < 2) return "क्या याद रखूँ?";
-            store().edit().putString(key, store().getString(key, "") + fact.replace("\n", " ") + "\n").apply();
-            return "ठीक है, याद रख लिया।";
-        }
-        return null;
-    }
-
-    // ---- Phone ke kaam: calendar, list, kharcha, diary, dawai, maps, search ----
-    List<String> readAll(String k) {
-        List<String> out = new ArrayList<>();
-        for (String t : store().getString(k, "").split("\n")) {
-            if (!t.trim().isEmpty()) out.add(t.trim());
-        }
-        return out;
-    }
-
-    void addTo(String k, String v) {
-        store().edit().putString(k, store().getString(k, "") + v.replace("\n", " ") + "\n").apply();
-    }
-
-    String numToDigits(String s) {
-        for (String[] p : NUMW) {
-            s = s.replaceAll(p[0] + "(?=\\s+(?:रुपये|रुपए|रूपये|रुपया))", p[1]);
-        }
-        return s;
-    }
-
-    String noteCmd(String s, String key, String name, boolean dated) {
-        if (has(s, "साफ", "खाली", "मिटा")) {
-            store().edit().remove(key).apply();
-            return name + " खाली कर दी।";
-        }
-        boolean write = has(s, "लिख", "जोड़", "डाल", "नोट कर");
-        boolean read = has(s, "सुना", "पढ़", "बता", "दिखा", "क्या है");
-        if (read && !write) {
-            List<String> all = readAll(key);
-            if (all.isEmpty()) return name + " में अभी कुछ नहीं है।";
-            return name + ": " + android.text.TextUtils.join(", ", all.subList(Math.max(0, all.size() - 8), all.size()));
-        }
-        String item = tokClean(s, "मिया", "miya", "योर", "यॉर", "yor", "लिस्ट", "नोट", "डायरी", "शॉपिंग",
-                "में", "जोड़ो", "जोड़", "डालो", "डाल", "लिखो", "लिख", "करो", "कर", "दो",
-                "मेरी", "मेरे", "मेरा", "का", "की", "के", "को");
-        if (item.isEmpty()) return "क्या लिखूँ? जैसे: दूध लिस्ट में जोड़ो";
-        String d = dated ? new java.text.SimpleDateFormat("dd/MM", Locale.US).format(new java.util.Date()) + " " : "";
-        addTo(key, d + item);
-        return "लिख लिया: " + item;
-    }
-
-    String kharchaCmd(String s) {
-        String ym = new java.text.SimpleDateFormat("yyyy-MM", Locale.US).format(new java.util.Date());
-        if (has(s, "कुल", "total", "हिसाब", "कितना", "कितने")) {
-            long sum = 0;
-            for (String l : readAll("kharcha")) {
-                String[] p = l.split("\\|");
-                if (p.length >= 2 && p[0].startsWith(ym)) {
-                    try { sum += Long.parseLong(p[1].trim()); } catch (Exception e) { }
-                }
-            }
-            return "इस महीने का कुल खर्च " + sum + " रुपये है।";
-        }
-        Matcher m = Pattern.compile("\\d+").matcher(s);
-        if (!m.find()) return "कितने रुपये? जैसे: चाय पर 20 रुपये खर्च";
-        String amt = m.group();
-        String title = tokClean(s.replaceAll("\\d+", " "), "मिया", "miya", "योर", "यॉर", "yor",
-                "रुपये", "रुपए", "रूपये", "रुपया", "खर्च", "खर्चा", "लिखो", "लिख", "जोड़ो", "डालो", "डाल",
-                "का", "के", "की", "पर", "में", "हुआ", "हुए", "किया", "दर्ज", "करो", "कर", "दो", "मैंने", "आज");
-        if (title.isEmpty()) title = "खर्च";
-        String day = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new java.util.Date());
-        addTo("kharcha", day + "|" + amt + "|" + title);
-        return amt + " रुपये का खर्च लिख लिया: " + title;
-    }
-
-    int pickHour(String s, int h) {
-        if (has(s, "शाम") || has(s, " pm")) {
-            if (h < 12) h += 12;
-        } else if (has(s, "दोपहर")) {
-            if (h >= 1 && h <= 6) h += 12;
-        } else if (has(s, "रात")) {
-            if (h == 12) h = 0;
-            else if (h >= 6 && h < 12) h += 12;
-        }
-        return h;
-    }
-
-    String medReply(String s) {
-        String n = normNum(s);
-        Matcher m = Pattern.compile("\\d{1,2}").matcher(n);
-        if (!m.find()) return "कितने बजे? जैसे: रोज़ रात 9 बजे दवाई याद दिलाओ";
-        int h = pickHour(s, Integer.parseInt(m.group()));
-        int mi = has(s, "साढ़े", "साढे") ? 30 : 0;
-        if (h > 23) return "समय समझ नहीं आया।";
-        ArrayList<Integer> days = new ArrayList<>();
-        for (int d = 1; d <= 7; d++) days.add(d);
-        startActivity(new Intent(AlarmClock.ACTION_SET_ALARM)
-                .putExtra(AlarmClock.EXTRA_HOUR, h)
-                .putExtra(AlarmClock.EXTRA_MINUTES, mi)
-                .putExtra(AlarmClock.EXTRA_MESSAGE, "दवाई")
-                .putIntegerArrayListExtra(AlarmClock.EXTRA_DAYS, days)
-                .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        return String.format(Locale.US, "ठीक है, रोज़ %02d:%02d पर दवाई का अलार्म लगा दिया।", h, mi);
-    }
-
-    String calReply(String s) {
-        String n = normNum(s);
-        java.util.Calendar c = java.util.Calendar.getInstance();
-        if (has(s, "परसों")) c.add(java.util.Calendar.DAY_OF_YEAR, 2);
-        else if (has(s, "कल")) c.add(java.util.Calendar.DAY_OF_YEAR, 1);
-        Matcher m = Pattern.compile("\\d{1,2}").matcher(n);
-        if (!m.find()) return "कितने बजे? जैसे: कल 5 बजे मीटिंग कैलेंडर में डालो";
-        int h = pickHour(s, Integer.parseInt(m.group()));
-        if (h > 23) return "समय समझ नहीं आया।";
-        c.set(java.util.Calendar.HOUR_OF_DAY, h);
-        c.set(java.util.Calendar.MINUTE, has(s, "साढ़े", "साढे") ? 30 : 0);
-        c.set(java.util.Calendar.SECOND, 0);
-        String title = tokClean(s.replaceAll("\\d+", " "), "मिया", "miya", "योर", "यॉर", "yor",
-                "कैलेंडर", "में", "डालो", "डाल", "दो", "जोड़ो", "जोड़", "बना", "बनाओ", "लगा", "लगाओ",
-                "कल", "परसों", "आज", "बजे", "सुबह", "शाम", "रात", "दोपहर", "को", "पर", "का", "की", "के",
-                "एक", "दो", "तीन", "चार", "पाँच", "पांच", "छह", "सात", "आठ", "नौ", "दस");
-        if (title.isEmpty()) title = "इवेंट";
-        startActivity(new Intent(Intent.ACTION_INSERT)
-                .setData(android.provider.CalendarContract.Events.CONTENT_URI)
-                .putExtra(android.provider.CalendarContract.Events.TITLE, title)
-                .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, c.getTimeInMillis())
-                .putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, c.getTimeInMillis() + 3600000L)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        return "कैलेंडर खोल दिया है, वहाँ सेव दबा दीजिए।";
-    }
-
-    String mapsReply(String s) {
-        String place = tokClean(s, "मिया", "miya", "योर", "यॉर", "yor", "का", "की", "के", "को", "से", "तक",
-                "रास्ता", "दिखाओ", "बताओ", "नेविगेट", "navigate", "directions", "करो", "कर", "चलो", "चालू", "लिए");
-        if (place.isEmpty()) return "कहाँ जाना है?";
-        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("google.navigation:q=" + android.net.Uri.encode(place)))
-                .setPackage("com.google.android.apps.maps")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        return place + " का रास्ता खोल रही हूँ।";
-    }
-
-    String searchReply(String s) {
-        boolean yt = has(s, "यूट्यूब", "youtube");
-        String q = tokClean(s, "मिया", "miya", "योर", "यॉर", "yor", "यूट्यूब", "youtube", "गूगल", "google",
-                "पर", "में", "खोजो", "खोज", "सर्च", "search", "करो", "कर", "दो", "ढूँढो", "ढूंढो", "ढूँढ", "ढूंढ", "के", "लिए");
-        if (q.isEmpty()) return "क्या खोजूँ?";
-        String url = (yt ? "https://www.youtube.com/results?search_query=" : "https://www.google.com/search?q=")
-                + android.net.Uri.encode(q);
-        startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        return q + " खोज रही हूँ।";
-    }
-
-    String extra(String s) {
-        try {
-            s = numToDigits(s);
-            boolean digit = Pattern.compile("\\d").matcher(s).find();
-            boolean money = has(s, "रुपये", "रुपए", "रूपये", "रुपया", "rupaye", "rupees");
-            boolean kharch = has(s, "खर्च", "खर्चा", "kharcha");
-            if (has(s, "दवाई", "दवा", "गोली", "medicine") && has(s, "याद", "रिमाइंडर", "अलार्म", "reminder")) return medReply(s);
-            if (has(s, "कैलेंडर", "calendar", "मीटिंग", "meeting") && has(s, "डाल", "जोड़", "add", "बना", "लगा") && !has(s, "खोल", "open")) return calReply(s);
-            if (has(s, "रास्ता", "नेविगेट", "navigate", "directions")) return mapsReply(s);
-            if (has(s, "खोज", "सर्च", "search", "ढूँढ", "ढूंढ") && has(s, "यूट्यूब", "youtube", "गूगल", "google")) return searchReply(s);
-            if (has(s, "डायरी", "diary")) return noteCmd(s, "diary", "डायरी", true);
-            if (kharch && has(s, "कुल", "total", "हिसाब", "कितना", "कितने")) return kharchaCmd(s);
-            if ((money || kharch) && digit && !has(s, "डॉलर", "dollar", "क्या")) return kharchaCmd(s);
-            if (has(s, "लिस्ट") && !has(s, "प्लेलिस्ट")) return noteCmd(s, "list", "लिस्ट", false);
-            if (has(s, "नोट") && !has(s, "नोटिफ")) return noteCmd(s, "notes", "नोट", true);
-        } catch (Exception e) {
-            return "यह काम नहीं हो पाया।";
-        }
-        return null;
-    }
-
-    // allowAsk = false: सिर्फ़ फ़ोन के कमांड, Gemini से बात नहीं (बिना नाम के सुनी बात के लिए)
-    void handle(List<String> alts, boolean allowAsk) {
-        for (String a : alts) {
-            String low = a.toLowerCase(Locale.ROOT);
-            if (allowAsk && deepCmd(a, low)) return;
-            String tc = thronCmd(low);
-            if (tc != null) { if (!tc.isEmpty()) say(tc); return; }
-            String mm = memCmd(low);
-            if (mm != null) { say(mm); return; }
-            String ex = extra(low);
-            if (ex != null) { say(ex); return; }
-            String r;
-            try {
-                r = device(low);
-            } catch (Exception e) {
-                r = "यह काम नहीं हो पाया।";
-            }
-            if (r != null) {
-                boolean bad = r.contains("नहीं") || r.contains("?") || r.contains("कितने");
-                if (bad) say(r); else quiet();
-                return;
-            }
-            int mc = modelCmd(a);
-            if (mc != 0) {
-                showChar();
-                js("setModel('" + (mc == 1 ? "yor" : mc == 3 ? "thron" : "model") + "')");
-                switchChar(mc == 1 ? "yor" : mc == 3 ? "thron" : "miya");
-                say(mc == 1 ? "ठीक है, अब मैं योर हूँ।" : mc == 3 ? "जी बॉस, बताइए।" : "ठीक है, मैं वापस मिया बन गई।");
-                return;
-            }
-            int c = danceCmd(a);
-            if (c == 1) {
-                showChar();
-                setDance(true);
-                quiet();
-                return;
-            }
-            if (c == 2) {
-                setDance(false);
-                quiet();
-                return;
-            }
-        }
-        if (allowAsk) ask(alts.get(0));
-    }
-
-    String device(String s) {
-        boolean alarmW = has(s, "अलार्म", "अलारम", "alarm");
-        boolean timerW = has(s, "टाइमर", "timer");
-        boolean unitW = has(s, "मिनट", "मिनिट", "minute", "सेकंड", "सेकेंड", "second", "घंट", "घण्ट", "hour");
-        if (timerW || (alarmW && unitW && has(s, "बाद", "after", "later"))) return timerReply(s);
-        if (alarmW) {
-            if (has(s, "बंद", "बन्द", "हटा", "cancel", "delete", "off", "दिखा", "show")) {
-                try {
-                    startActivity(new Intent(AlarmClock.ACTION_SHOW_ALARMS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                    return "अलार्म की सूची खोल दी है, वहाँ से बंद कर लीजिए।";
-                } catch (Exception e) {
-                    return "घड़ी का ऐप नहीं खुल पाया।";
-                }
-            }
-            return alarmReply(s);
-        }
-        if (has(s, "टॉर्च", "टार्च", "टोर्च", "torch", "flashlight", "फ्लैश", "फ़्लैश", "flash")) return torchReply(s);
-        if (has(s, "आवाज", "वॉल्यूम", "वाल्यूम", "volume", "साउंड", "sound")) {
-            String r = volumeReply(s);
-            if (r != null) return r;
-        }
-        if (has(s, "गाना", "गाने", "गीत", "म्यूज", "संगीत", "music", "song")) {
-            String r = musicReply(s);
-            if (r != null) return r;
-        }
-        if (has(s, "खोल", "ओपन", "open", "लॉन्च", "launch")) {
-            String r = openReply(s);
-            if (r != null) return r;
-        }
-        return null;
-    }
-
-    // एक-दो जैसे हिंदी अंक-शब्द को संख्या में बदलता है, पर सिर्फ़ तब जब उसके बाद बजे/मिनट/सेकंड/घंटा आए
-    String normNum(String s) {
-        String[] t = s.split("\\s+");
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < t.length; i++) {
-            String w = t[i];
-            String nx = i + 1 < t.length ? t[i + 1] : "";
-            boolean unit = nx.startsWith("बज") || nx.startsWith("मिन") || nx.startsWith("सेक")
-                    || nx.startsWith("घंट") || nx.startsWith("घण्ट") || nx.startsWith("min")
-                    || nx.startsWith("sec") || nx.startsWith("hour");
-            if (unit) {
-                for (String[] p : NUMW) {
-                    if (p[0].equals(w)) { w = p[1]; break; }
-                }
-            }
-            sb.append(w).append(' ');
-        }
-        return sb.toString();
-    }
-
-    // ---------- 1. ऐप खोलना ----------
-    String openReply(String s) {
-        List<String> stop = Arrays.asList("खोलो", "खोल", "खोलना", "दो", "दे", "करो", "कर", "ओपन", "open",
-                "लॉन्च", "launch", "मिया", "miya", "प्लीज़", "प्लीज", "please", "ज़रा", "जरा",
-                "एप्लिकेशन", "application", "ऐप", "एप", "app", "को", "जी");
-        StringBuilder sb = new StringBuilder();
-        for (String t : s.split("\\s+")) {
-            if (!t.isEmpty() && !stop.contains(t)) sb.append(t).append(' ');
-        }
-        String name = sb.toString().trim();
-        if (name.isEmpty()) return "कौन सा ऐप खोलूँ?";
-        for (String[] p : APPS) {
-            if (name.contains(p[0])) { name = p[1]; break; }
-        }
-        PackageManager pm = getPackageManager();
-        Intent li = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        String best = null, bestLabel = "";
-        int bestScore = 0;
-        for (ResolveInfo ri : pm.queryIntentActivities(li, 0)) {
-            String label = ri.loadLabel(pm).toString().toLowerCase(Locale.ROOT);
-            int sc = label.equals(name) ? 3 : label.startsWith(name) ? 2 : label.contains(name) ? 1 : 0;
-            if (sc > bestScore || (sc == bestScore && sc > 0 && label.length() < bestLabel.length())) {
-                bestScore = sc;
-                best = ri.activityInfo.packageName;
-                bestLabel = label;
-            }
-        }
-        if (best == null) {
-            return name.split(" ").length <= 3 ? "मुझे " + name + " नाम का ऐप नहीं मिला।" : null;
-        }
-        Intent launch = pm.getLaunchIntentForPackage(best);
-        if (launch == null) return "वह ऐप खुल नहीं पाया।";
-        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(launch);
-        return bestLabel + " खोल रही हूँ।";
-    }
-
-    // ---------- 2. अलार्म और टाइमर ----------
-    String timerReply(String s) {
-        try {
-            String n = normNum(s);
-            Matcher m = Pattern.compile("(\\d+)\\s*(घंट|घण्ट|hour|मिनट|मिनिट|minute|min|सेकंड|सेकेंड|second|sec)").matcher(n);
-            int sec = 0;
-            while (m.find()) {
-                int v = Integer.parseInt(m.group(1));
-                String u = m.group(2);
-                if (u.startsWith("घ") || u.startsWith("hour")) sec += v * 3600;
-                else if (u.startsWith("म") || u.startsWith("min")) sec += v * 60;
-                else sec += v;
-            }
-            if (sec <= 0) return "कितने समय का टाइमर लगाऊँ? जैसे: पाँच मिनट का टाइमर";
-            if (sec > 86400) return "इतना लंबा टाइमर नहीं लगा सकती, 24 घंटे तक ही।";
-            startActivity(new Intent(AlarmClock.ACTION_SET_TIMER)
-                    .putExtra(AlarmClock.EXTRA_LENGTH, sec)
-                    .putExtra(AlarmClock.EXTRA_MESSAGE, "मिया")
-                    .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            int hh = sec / 3600, mm = (sec % 3600) / 60, ss = sec % 60;
-            StringBuilder d = new StringBuilder();
-            if (hh > 0) d.append(hh).append(" घंटे ");
-            if (mm > 0) d.append(mm).append(" मिनट ");
-            if (ss > 0) d.append(ss).append(" सेकंड");
-            return d.toString().trim() + " का टाइमर लगा दिया।";
-        } catch (Exception e) {
-            return "टाइमर नहीं लग पाया।";
-        }
-    }
-
-    String alarmReply(String s) {
-        try {
-            String n = normNum(s);
-            int h = -1, mi = 0;
-            Matcher c = Pattern.compile("(\\d{1,2})\\s*[:.]\\s*(\\d{2})").matcher(n);
-            if (c.find()) {
-                h = Integer.parseInt(c.group(1));
-                mi = Integer.parseInt(c.group(2));
-            } else {
-                Matcher m = Pattern.compile("\\d+").matcher(n);
-                if (m.find()) {
-                    h = Integer.parseInt(m.group());
-                    if (m.find()) {
-                        int x = Integer.parseInt(m.group());
-                        if (x <= 59) mi = x;
-                    }
-                }
-            }
-            if (h < 0 || h > 23 || mi > 59) {
-                return "कितने बजे का अलार्म लगाऊँ? जैसे: सुबह छह बजे का अलार्म लगाओ";
-            }
-            if (has(n, "साढ़े", "साढे", "साड़े")) mi = 30;
-            else if (has(n, "सवा")) mi = 15;
-            boolean paune = has(n, "पौने");
-            boolean pm = has(s, " pm", "p.m");
-            if (has(s, "शाम") || pm) {
-                if (h < 12) h += 12;
-            } else if (has(s, "दोपहर")) {
-                if (h >= 1 && h <= 6) h += 12;
-            } else if (has(s, "रात")) {
-                if (h == 12) h = 0;
-                else if (h >= 6 && h < 12) h += 12;
-            }
-            if (paune) {
-                h = (h + 23) % 24;
-                mi = 45;
-            }
-            startActivity(new Intent(AlarmClock.ACTION_SET_ALARM)
-                    .putExtra(AlarmClock.EXTRA_HOUR, h)
-                    .putExtra(AlarmClock.EXTRA_MINUTES, mi)
-                    .putExtra(AlarmClock.EXTRA_MESSAGE, "मिया")
-                    .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            return String.format(Locale.US, "ठीक है, %02d:%02d का अलार्म लगा दिया।", h, mi);
-        } catch (Exception e) {
-            return "अलार्म नहीं लग पाया।";
-        }
-    }
-
-    // ---------- 3. टॉर्च ----------
-    String torchReply(String s) {
-        boolean off = has(s, "बंद", "बन्द", "बुझा", "off", "ऑफ");
-        boolean on = has(s, "चालू", "जला", "ऑन", " on", "खोल");
-        boolean want = off ? false : (on ? true : !torchOn);
-        try {
-            CameraManager cm = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-            String id = null;
-            for (String cid : cm.getCameraIdList()) {
-                Boolean f = cm.getCameraCharacteristics(cid).get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
-                if (f != null && f) { id = cid; break; }
-            }
-            if (id == null) return "इस फ़ोन में टॉर्च नहीं मिली।";
-            cm.setTorchMode(id, want);
-            torchOn = want;
-            return want ? "टॉर्च चालू कर दी।" : "टॉर्च बंद कर दी।";
-        } catch (Exception e) {
-            return "टॉर्च नहीं चल पाई।";
-        }
-    }
-
-    // ---------- 4. आवाज़ ----------
-    String volumeReply(String s) {
-        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-        boolean up = has(s, "बढ़", "बढ", "ज़्यादा", "ज्यादा", "तेज", "increase", "raise", "louder", " up");
-        boolean down = has(s, "घट", "कम", "धीम", "धीरे", "decrease", "lower", "down", "quiet");
-        if (has(s, "म्यूट", "mute")) {
-            am.setStreamVolume(AudioManager.STREAM_MUSIC, 0, AudioManager.FLAG_SHOW_UI);
-            return "आवाज़ बंद कर दी।";
-        }
-        if (has(s, "फुल", "पूरी", "max", "full")) {
-            am.setStreamVolume(AudioManager.STREAM_MUSIC, max, AudioManager.FLAG_SHOW_UI);
-            return "आवाज़ पूरी कर दी।";
-        }
-        if (up && !down) {
-            for (int i = 0; i < 2; i++) {
-                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI);
-            }
-            return "आवाज़ बढ़ा दी।";
-        }
-        if (down && !up) {
-            for (int i = 0; i < 2; i++) {
-                am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI);
-            }
-            return "आवाज़ कम कर दी।";
-        }
-        return null;
-    }
-
-    // ---------- 5. संगीत नियंत्रण ----------
-    String musicReply(String s) {
-        boolean next = has(s, "अगला", "अगले", "next", "नेक्स्ट", "आगे");
-        boolean prev = has(s, "पिछला", "पिछले", "previous", "प्रीवियस", "पीछे");
-        boolean pause = has(s, "रोको", "रोक", "पॉज", "पाज", "pause", "बंद", "बन्द", "stop");
-        boolean play = has(s, "चालू", "चला", "बजा", "play", "प्ले", "शुरू");
-        int key;
-        String msg;
-        if (next) { key = KeyEvent.KEYCODE_MEDIA_NEXT; msg = "अगला गाना।"; }
-        else if (prev) { key = KeyEvent.KEYCODE_MEDIA_PREVIOUS; msg = "पिछला गाना।"; }
-        else if (pause) { key = KeyEvent.KEYCODE_MEDIA_PAUSE; msg = "गाना रोक दिया।"; }
-        else if (play) { key = KeyEvent.KEYCODE_MEDIA_PLAY; msg = "गाना चला रही हूँ।"; }
-        else return null;
-        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        am.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, key));
-        am.dispatchMediaKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, key));
-        return msg;
-    }
-
-    // ======== THRON: बैटरी निगरानी (कम बैटरी खर्च, events से) ========
-    android.content.BroadcastReceiver batRx;
-    int batPct = -1, warnStage = 0, dropRefPct = -1;
-    boolean batChg = false, autoSaved = false, fullSaid = false;
-    long dropRefT = 0, lastHeatAt = 0, lastDrainAt = 0;
-    final List<String> thronLog = new ArrayList<>();
-
-    boolean screenOn() {
-        try {
-            return ((android.os.PowerManager) getSystemService(POWER_SERVICE)).isInteractive();
-        } catch (Exception e) {
-            return true;
-        }
-    }
-
-    void startThronMonitor() {
-        try {
-            batRx = new android.content.BroadcastReceiver() {
-                @Override
-                public void onReceive(Context c, Intent i) { onBattery(i); }
-            };
-            Intent sticky = registerReceiver(batRx, new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-            if (sticky != null) onBattery(sticky);
-        } catch (Exception e) { }
-    }
-
-    void onBattery(Intent i) {
-        int lvl = i.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
-        int scale = i.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100);
-        if (lvl < 0 || scale <= 0) return;
-        int pct = lvl * 100 / scale;
-        int st = i.getIntExtra(android.os.BatteryManager.EXTRA_STATUS, -1);
-        boolean chg = st == android.os.BatteryManager.BATTERY_STATUS_CHARGING
-                || st == android.os.BatteryManager.BATTERY_STATUS_FULL;
-        int temp = i.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0) / 10;
-        long now = System.currentTimeMillis();
-        batPct = pct;
-        batChg = chg;
-
-        if (chg) {
-            warnStage = 0;
-            dropRefPct = -1;
-            if (autoSaved) { wakeOn = true; autoSaved = false; }
-            if (pct >= 100 && !fullSaid) {
-                fullSaid = true;
-                thronAlert("बैटरी full है, चार्जर निकाल दीजिए।", false);
-            }
-            if (pct < 95) fullSaid = false;
-        } else {
-            fullSaid = false;
-            if (pct <= 20 && wakeOn) { wakeOn = false; autoSaved = true; }
-            if (pct > 25) warnStage = 0;
-            if (pct <= 5 && warnStage < 3) {
-                warnStage = 3;
-                thronAlert("बैटरी सिर्फ़ " + pct + " प्रतिशत है, फ़ोन बंद होने वाला है। अभी चार्जर लगाइए।", true);
-            } else if (pct <= 10 && warnStage < 2) {
-                warnStage = 2;
-                thronAlert("बैटरी " + pct + " प्रतिशत रह गई है, चार्जर लगाइए।", true);
-            } else if (pct <= 20 && warnStage < 1) {
-                warnStage = 1;
-                thronAlert("बैटरी " + pct + " प्रतिशत है। बैटरी बचाने के लिए हमेशा सुनना बंद कर दिया है।", false);
-            }
-            if (dropRefPct < 0) {
-                dropRefPct = pct;
-                dropRefT = now;
-            } else if (now - dropRefT >= 15 * 60000L) {
-                int drop = dropRefPct - pct;
-                if (drop >= 15 && now - lastDrainAt > 3600000L) {
-                    lastDrainAt = now;
-                    thronAlert("बैटरी 15 मिनट में " + drop + " प्रतिशत गिरी है। कोई ऐप पीछे चल रही हो सकती है, सेटिंग में बैटरी उपयोग देखिए।", false);
-                }
-                dropRefPct = pct;
-                dropRefT = now;
-            }
-        }
-        if (temp >= 42 && now - lastHeatAt > 600000L) {
-            lastHeatAt = now;
-            thronAlert("फ़ोन गरम है (" + temp + " डिग्री)। भारी ऐप बंद कर दीजिए।", temp >= 45);
-        }
-    }
-
-    void thronNotify(String msg) {
-        try {
-            NotificationManager nm = getSystemService(NotificationManager.class);
-            nm.createNotificationChannel(new NotificationChannel("thron", "थ्रोन", NotificationManager.IMPORTANCE_DEFAULT));
-            Notification n = new Notification.Builder(this, "thron")
-                    .setSmallIcon(android.R.drawable.ic_dialog_alert)
-                    .setContentTitle("थ्रोन")
-                    .setContentText("बॉस, " + msg)
-                    .setStyle(new Notification.BigTextStyle().bigText("बॉस, " + msg))
-                    .setAutoCancel(true)
-                    .build();
-            nm.notify(2, n);
-        } catch (Exception e) { }
-    }
-
-    void thronAlert(final String msg, boolean severe) {
-        thronLog.add(msg);
-        if (thronLog.size() > 30) thronLog.remove(0);
-        if (!severe || !screenOn() || busy || speaking) {
-            thronNotify(msg);
+        if (low.contains("setup mode") || low.contains("author mode") || low.contains("setup kholo")) {
+            askPassword("ENTER_SETUP");
             return;
         }
-        showChar();
-        if (curChar.equals("thron")) {
-            say("बॉस, " + msg);
+        if (low.contains("password badlo") || low.contains("naya password")) {
+            if (!setupMode) { askPassword("SET_PASSWORD"); return; }
+            promptNewPassword();
             return;
         }
-        final String back = curChar;
-        js("setModel('thron')");
-        switchChar("thron");
-        say("बॉस, " + msg);
-        ui.postDelayed(() -> {
-            if (curChar.equals("thron")) {
-                js("setModel('" + (back.equals("yor") ? "yor" : "model") + "')");
-                switchChar(back);
-            }
-        }, 12000);
-    }
-
-    // ======== THRON: कमांड न मिले तो चली जाना, security, size ========
-    boolean hidden = false;
-    long lastActive = System.currentTimeMillis();
-    android.content.BroadcastReceiver pkgRx;
-    android.net.ConnectivityManager.NetworkCallback netCb;
-    long lastNetAt = 0;
-
-    void markActive() { lastActive = System.currentTimeMillis(); }
-
-    void holdFor(long ms) { lastActive = System.currentTimeMillis() + ms; }
-
-    boolean canHide() {
-        return web != null && !hidden && !speaking && !busy && !dancing
-                && !awaitCmd && !(listening && !passive);
-    }
-
-    void hideChar() {
-        if (hidden || web == null) return;
-        hidden = true;
-        try {
-            web.onPause();
-            wm.removeView(web);
-        } catch (Exception e) { }
-    }
-
-    void showChar() {
-        markActive();
-        if (!hidden || web == null) return;
-        hidden = false;
-        try {
-            wm.addView(web, lp);
-            web.onResume();
-        } catch (Exception e) { }
-    }
-
-    final Runnable idleTick = new Runnable() {
-        public void run() {
-            if (web == null) return;
-            if (!canHide()) markActive();
-            else if (System.currentTimeMillis() - lastActive >= IDLE_HIDE_MS) hideChar();
-            ui.postDelayed(this, 250);
+        if (low.contains("normal mode") || low.contains("setup band")) {
+            setupMode = false;
+            refreshBubble();
+            speak("Normal mode me wapas");
+            return;
         }
-    };
+        if (low.contains("apne baare") || low.contains("khud ke baare") || low.contains("about yourself")) {
+            aboutSelf();
+            return;
+        }
+        if (low.startsWith("search ") || low.startsWith("web search ")) {
+            String q = t.replaceFirst("(?i)^(web\\s+)?search\\s+(for\\s+)?", "").trim();
+            webSearch(q);
+            return;
+        }
+        if (low.equals("web search") || low.equals("search")) {
+            speak("Kya search karu? Bolo: search, phir apni query");
+            return;
+        }
+        if (low.contains("security concept") || low.contains("ethical hacking")) {
+            secConcepts();
+            return;
+        }
+        if (setupMode && low.startsWith("termux ")) {
+            // Setup mode me hi Termux command chalegi, aur wo bhi sirf coding/automation daayre ki
+            runTermux(t.substring(7).trim());
+            return;
+        }
 
-    void applySize() {
-        try {
-            if (lp == null) return;
-            float d = getResources().getDisplayMetrics().density;
-            float k = store().getFloat("size_" + curChar, 1f);
-            lp.width = (int) (230 * d * k);
-            lp.height = (int) (320 * d * k);
-            if (web != null && !hidden) wm.updateViewLayout(web, lp);
-        } catch (Exception e) { }
+        askAI(t);
     }
 
-    String sizeCmd(String s) {
-        if (!has(s, "हो जा", "होजा", "ho ja", "hojao", "साइज", "size")) return null;
-        float k;
-        if (has(s, "छोट", "chhot", "chot")) k = 0.6f;
-        else if (has(s, "बड़", "बड", "bad")) k = 1.4f;
-        else if (has(s, "नॉर्मल", "सामान्य", "normal")) k = 1f;
-        else return null;
-        store().edit().putFloat("size_" + curChar, k).apply();
-        applySize();
-        return curChar.equals("thron") ? "ठीक है बॉस।" : "ठीक है।";
+    // ---- Khud ke baare me — code ke voice commands se hi banta hai, hardcoded sahi rehta hai ----
+    void aboutSelf() {
+        StringBuilder s = new StringBuilder();
+        s.append("Main coding, debugging aur automation me madad karti hoon. ");
+        s.append("Mere do mode hain: Normal, jisme sawaal-jawab hota hai; aur Setup, jisme password se unlock karke Termux commands aur password badal sakte ho. ");
+        s.append("Mere voice commands: 'setup mode' se setup kholta hai, 'normal mode' se wapas aata hai, ");
+        s.append("'password badlo' se naya password set hota hai, 'termux' se shuru hota command Setup mode me shell par jata hai, ");
+        s.append("'search' bolkar query bolo to web search khul jata hai, 'security concepts' ya 'ethical hacking' bolne par main concepts sirf samajh aur bachav ke liye samjhati hoon, ");
+        s.append("aur baaki jo bhi bolo wo AI ko coding/debugging sawaal ki tarah jata hai. ");
+        s.append("Main attack, exploit ya malware commands kabhi nahi deti.");
+        speak(s.toString());
     }
 
-    String installerOf(String pkg) {
+    // ---- Web Search ----
+    void webSearch(String q) {
+        if (q == null || q.trim().isEmpty()) { speak("Kya search karu, bolo"); return; }
         try {
-            PackageManager pm = getPackageManager();
-            if (Build.VERSION.SDK_INT >= 30) return pm.getInstallSourceInfo(pkg).getInstallingPackageName();
-            return pm.getInstallerPackageName(pkg);
+            Intent i = new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://www.google.com/search?q=" + Uri.encode(q.trim())));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            speak("Search kar rahi hoon: " + q);
         } catch (Exception e) {
-            return "?";
+            speak("Search nahi khul paya");
         }
     }
 
-    String buildScan() {
-        List<String> out = new ArrayList<>();
-        try {
-            android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
-            if (km != null && !km.isDeviceSecure()) out.add("फ़ोन पर स्क्रीन लॉक नहीं है");
-        } catch (Exception e) { }
-        try {
-            if (android.provider.Settings.Global.getInt(getContentResolver(),
-                    android.provider.Settings.Global.ADB_ENABLED, 0) == 1) out.add("USB डिबगिंग चालू है");
-        } catch (Exception e) { }
-        try {
-            PackageManager pm = getPackageManager();
-            int mic = 0, side = 0;
-            List<String> names = new ArrayList<>();
-            for (android.content.pm.PackageInfo p : pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)) {
-                android.content.pm.ApplicationInfo ai = p.applicationInfo;
-                if (ai == null || (ai.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0) continue;
-                if (p.packageName.equals(getPackageName())) continue;
-                if (p.requestedPermissions != null && p.requestedPermissionsFlags != null) {
-                    for (int i = 0; i < p.requestedPermissions.length && i < p.requestedPermissionsFlags.length; i++) {
-                        if (android.Manifest.permission.RECORD_AUDIO.equals(p.requestedPermissions[i])
-                                && (p.requestedPermissionsFlags[i] & android.content.pm.PackageInfo.REQUESTED_PERMISSION_GRANTED) != 0) {
-                            mic++;
-                            break;
-                        }
-                    }
-                }
-                if (installerOf(p.packageName) == null) {
-                    side++;
-                    if (names.size() < 3) names.add(String.valueOf(pm.getApplicationLabel(ai)));
-                }
-            }
-            if (mic > 0) out.add(mic + " ऐप्स के पास माइक की अनुमति है");
-            if (side > 0) out.add("प्ले स्टोर के बाहर से आई " + side + " ऐप हैं, जैसे " + android.text.TextUtils.join(", ", names));
-        } catch (Exception e) { }
-        if (out.isEmpty()) return "बॉस, स्कैन पूरा, सब ठीक दिख रहा है।";
-        return "बॉस, स्कैन पूरा। " + android.text.TextUtils.join("। ", out) + "।";
+    // ---- Security Concepts: sirf samajh/bachav, hardcoded — AI se nahi, kabhi attack command nahi ----
+    void secConcepts() {
+        speak("Ye sirf samajhne aur bachav ke liye hai, main asli attack command kabhi nahi deti. " +
+            "DoS ka matlab hai server ko itne fake requests bhejna ki wo asli users ke liye ruk jaye, " +
+            "bachav rate limiting aur firewall se hota hai. " +
+            "Phishing matlab fake login page se password churana, bachav URL dhyan se dekhna aur " +
+            "two factor authentication hai. " +
+            "Malware matlab bina permission ke device me ghuskar nuksan karne wala software, " +
+            "bachav sirf trusted source se app install karna hai. " +
+            "Network scanning matlab network par khule ports dekhna, defensive use khud ke network " +
+            "ko audit karna hai. " +
+            "Password security matlab lamba, unique password aur password manager use karna.");
     }
 
-    void thronScan() {
+    void refreshBubble() {
+        if (web != null) web.loadDataWithBaseURL(null, bubbleHtml(), "text/html", "UTF-8", null);
+    }
+
+    // ---------------- PASSWORD ----------------
+    String sha256(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] d = md.digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte x : d) sb.append(String.format("%02x", x));
+            return sb.toString();
+        } catch (Exception e) { return String.valueOf(s.hashCode()); }
+    }
+
+    void askPassword(String action) {
+        pendingAction = action;
+        awaitingPassword = true;
+        String saved = prefs.getString(KEY_PASS_HASH, null);
+        if (saved == null) {
+            speak("Pehli baar hai. Apna naya password bolo.");
+        } else {
+            speak("Password bolo");
+        }
+    }
+
+    void checkPassword(String spoken) {
+        awaitingPassword = false;
+        String saved = prefs.getString(KEY_PASS_HASH, null);
+        String action = pendingAction; pendingAction = null;
+
+        if (saved == null) {
+            // pehli baar — jo bhi bola wahi set ho jata hai
+            prefs.edit().putString(KEY_PASS_HASH, sha256(spoken)).apply();
+            speak("Password set ho gaya");
+            if ("ENTER_SETUP".equals(action)) { setupMode = true; refreshBubble(); speak("Setup mode on"); }
+            return;
+        }
+
+        if (sha256(spoken).equals(saved)) {
+            if ("ENTER_SETUP".equals(action)) { setupMode = true; refreshBubble(); speak("Setup mode on"); }
+            else if ("SET_PASSWORD".equals(action)) { promptNewPassword(); }
+            else if (action != null && action.startsWith("RUN_TERMUX:")) {
+                runTermuxNow(action.substring(11));
+            }
+        } else {
+            speak("Galat password");
+        }
+    }
+
+    void promptNewPassword() {
+        awaitingPassword = true;
+        pendingAction = "SET_PASSWORD_VALUE";
+        speak("Naya password bolo");
+    }
+
+    // ---------------- TERMUX (coding / automation ke liye hi) ----------------
+    void runTermux(String cmd) {
+        if (!setupMode) { askPassword("RUN_TERMUX:" + cmd); return; }
+        runTermuxNow(cmd);
+    }
+
+    void runTermuxNow(String cmd) {
         net.execute(() -> {
-            final String r = buildScan();
-            ui.post(() -> say(r));
+            try {
+                if (!termuxConnected) connectTermux();
+                termuxOut.write((cmd + "\n").getBytes(StandardCharsets.UTF_8));
+                termuxOut.flush();
+                BufferedReader r = new BufferedReader(new InputStreamReader(termuxSocket.getInputStream()));
+                StringBuilder out = new StringBuilder();
+                String line; int lines = 0;
+                while ((line = r.readLine()) != null && lines < 30) { out.append(line).append('\n'); lines++; }
+                ui.post(() -> speak("Command chal gaya"));
+            } catch (Exception e) {
+                ui.post(() -> speak("Termux se connect nahi ho paya: " + e.getMessage()));
+            }
         });
     }
 
-    void startPkgWatch() {
-        try {
-            pkgRx = new android.content.BroadcastReceiver() {
-                @Override
-                public void onReceive(Context c, Intent i) {
-                    if (i.getBooleanExtra(Intent.EXTRA_REPLACING, false)) return;
-                    android.net.Uri u = i.getData();
-                    if (u == null) return;
-                    String pkg = u.getSchemeSpecificPart();
-                    String label = pkg;
-                    try {
-                        PackageManager pm = getPackageManager();
-                        label = String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
-                    } catch (Exception e) { }
-                    boolean side = installerOf(pkg) == null;
-                    thronAlert("नई ऐप इंस्टॉल हुई: " + label + (side ? "। ये प्ले स्टोर से नहीं आई, ध्यान रखिए।" : "।"), side);
-                }
-            };
-            android.content.IntentFilter f = new android.content.IntentFilter(Intent.ACTION_PACKAGE_ADDED);
-            f.addDataScheme("package");
-            registerReceiver(pkgRx, f);
-        } catch (Exception e) { }
+    void connectTermux() throws Exception {
+        termuxSocket = new Socket(TERMUX_HOST, TERMUX_PORT);
+        termuxOut = termuxSocket.getOutputStream();
+        termuxConnected = true;
     }
 
-    void startNetWatch() {
-        try {
-            final android.net.ConnectivityManager cm =
-                    (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-            netCb = new android.net.ConnectivityManager.NetworkCallback() {
-                @Override
-                public void onLost(android.net.Network n) {
-                    ui.postDelayed(() -> {
-                        long now = System.currentTimeMillis();
-                        if (cm.getActiveNetwork() == null && now - lastNetAt > 600000L) {
-                            lastNetAt = now;
-                            thronAlert("इंटरनेट कट गया है।", false);
-                        }
-                    }, 5000);
-                }
-            };
-            cm.registerDefaultNetworkCallback(netCb);
-        } catch (Exception e) { }
-    }
-
-    // बैटरी, size, scan वगैरह: किसी भी character के साथ, नाम लिए बिना चलते हैं
-    String thronCmd(String s) {
-        String sz = sizeCmd(s);
-        if (sz != null) return sz;
-        if (has(s, "स्कैन", "scan", "सिक्योरिटी", "सुरक्षा जाँच", "सुरक्षा जांच")) { thronScan(); return ""; }
-        String boss = curChar.equals("thron") ? "बॉस, " : "";
-        if (has(s, "बैटरी") && has(s, "कितनी", "बताओ", "स्टेटस", "कैसी", "हाल")) {
-            if (batPct < 0) return boss + "अभी बैटरी की जानकारी नहीं मिली।";
-            return boss + "बैटरी " + batPct + " प्रतिशत है और " + (batChg ? "चार्ज हो रही है।" : "चार्ज नहीं हो रही।");
-        }
-        if (has(s, "सुनना बंद", "सुनना बन्द", "सुनो मत")) {
-            wakeOn = false;
-            autoSaved = false;
-            return boss + "ठीक है, हमेशा सुनना बंद कर दिया। बैटरी बचेगी, बात करने के लिए मुझे दबाइए।";
-        }
-        if (has(s, "हमेशा सुनो", "सुनना चालू", "सुनना शुरू")) {
-            wakeOn = true;
-            autoSaved = false;
-            return boss + "ठीक है, हमेशा सुनना चालू कर दिया।";
-        }
-        if (has(s, "चेतावनी", "अलर्ट", "alert")) {
-            if (thronLog.isEmpty()) return boss + "अभी तक कोई चेतावनी नहीं आई।";
-            return boss + "आख़िरी चेतावनी: " + thronLog.get(thronLog.size() - 1);
-        }
-        if (has(s, "फाइल", "फ़ाइल") && has(s, "बना", "सेव")) return saveLast();
-        if (has(s, "शेयर कर")) return shareLast();
-        return null;
-    }
-
-    // ======== THRON: लंबे काम (कोड, प्लान, वेब सर्च, फाइल) ========
-    String lastLong = "";
-
-    boolean deepCmd(final String raw, String s) {
-        boolean web = has(s, "खोजकर बताओ", "खोज कर बताओ", "ढूँढकर बताओ", "ढूंढकर बताओ", "ढूंढ कर बताओ", "ढूँढ कर बताओ",
-                "ताज़ा खबर", "ताजा खबर", "आज की खबर", "न्यूज़", "समाचार", "इंटरनेट पर देखकर", "वेब सर्च");
-        boolean code = has(s, "कोड", "प्रोग्राम", "स्क्रिप्ट", "code") && has(s, "लिख", "बना", "ठीक", "सुधार", "fix", "समझा");
-        boolean plan = has(s, "प्लान", "योजना", "रूपरेखा", "विस्तार से", "स्टेप बाय स्टेप");
-        if (!web && !code && !plan) return false;
-        if (busy) {
-            say("अभी एक काम चल रहा है, थोड़ा रुकिए।");
-            return true;
-        }
-        deepAsk(raw, web, has(s, "फाइल", "फ़ाइल", "file"));
-        return true;
-    }
-
-    void deepAsk(final String text, final boolean web, final boolean autoSave) {
+    // ---------------- AI CALL (coding/debug/automation persona only) ----------------
+    void askAI(String userText) {
         busy = true;
-        showChar();
-        js("setStatus('सोच रहा हूँ…')");
         net.execute(() -> {
-            String reply;
             try {
-                reply = callDeep(text, web);
+                JSONObject body = new JSONObject();
+                body.put("system", PERSONA_MIYA);
+                JSONArray msgs = new JSONArray();
+                JSONObject m = new JSONObject();
+                m.put("role", "user");
+                m.put("content", userText);
+                msgs.put(m);
+                body.put("messages", msgs);
+
+                URL url = new URL(WORKER_URL);
+                HttpURLConnection c = (HttpURLConnection) url.openConnection();
+                c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type", "application/json");
+                if (!APP_KEY.isEmpty()) c.setRequestProperty("x-app-key", APP_KEY);
+                c.setDoOutput(true);
+                c.getOutputStream().write(body.toString().getBytes(StandardCharsets.UTF_8));
+
+                BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = r.readLine()) != null) sb.append(line);
+
+                JSONObject resp = new JSONObject(sb.toString());
+                String reasoning = resp.optString("reasoning", resp.optString("text", ""));
+                history.add(resp);
+                ui.post(() -> { busy = false; if (!reasoning.isEmpty()) speak(reasoning); });
             } catch (Exception e) {
-                reply = "ERR:कुछ गड़बड़ हुई: " + e.getMessage();
+                ui.post(() -> { busy = false; speak("Samajh nahi payi: " + e.getMessage()); });
             }
-            final String r = reply;
-            ui.post(() -> onDeep(r, autoSave));
         });
-    }
-
-    String callDeep(String userText, boolean web) throws Exception {
-        JSONObject body = new JSONObject();
-        String sys = personaNow()
-                + "\nअब विस्तार से जवाब दो। सबसे ऊपर पहली पंक्ति में 1-2 वाक्य का सार बोलचाल की भाषा में लिखो, "
-                + "फिर एक खाली पंक्ति छोड़कर पूरा जवाब क्रमवार दो। कोड हो तो पूरा चलने लायक कोड दो।";
-        body.put("systemInstruction", new JSONObject().put("parts", new JSONArray().put(new JSONObject().put("text", sys))));
-        body.put("contents", new JSONArray().put(msgOf("user", userText)));
-        body.put("generationConfig", new JSONObject().put("maxOutputTokens", 4096));
-        if (web) body.put("tools", new JSONArray().put(new JSONObject().put("google_search", new JSONObject())));
-        return postWorker(body);
-    }
-
-    String postWorker(JSONObject body) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(WORKER).openConnection();
-        c.setRequestMethod("POST");
-        c.setRequestProperty("Content-Type", "application/json");
-        c.setRequestProperty("x-miya-key", APP_KEY);
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(90000);
-        c.setDoOutput(true);
-        try (OutputStream o = c.getOutputStream()) {
-            o.write(body.toString().getBytes("UTF-8"));
-        }
-        InputStream in = c.getResponseCode() < 400 ? c.getInputStream() : c.getErrorStream();
-        ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        byte[] buf = new byte[4096];
-        int n;
-        while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
-        JSONObject j = new JSONObject(bo.toString("UTF-8"));
-        JSONArray cand = j.optJSONArray("candidates");
-        if (cand == null || cand.length() == 0) {
-            JSONObject er = j.optJSONObject("error");
-            return "ERR:जवाब नहीं मिला। " + (er != null ? er.optString("message") : "");
-        }
-        JSONArray parts = cand.getJSONObject(0).getJSONObject("content").getJSONArray("parts");
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < parts.length(); i++) sb.append(parts.getJSONObject(i).optString("text"));
-        return sb.toString();
-    }
-
-    void onDeep(String r, boolean autoSave) {
-        busy = false;
-        showChar();
-        cmdUntil = System.currentTimeMillis() + CMD_WINDOW_MS;
-        if (r.startsWith("ERR:")) {
-            say(r.substring(4));
-            return;
-        }
-        lastLong = r;
-        String head = r.trim();
-        int cut = head.indexOf("\n");
-        if (cut > 0) head = head.substring(0, cut);
-        head = head.replaceAll("[*#`]", "");
-        if (head.length() > 220) head = head.substring(0, 220);
-        longNotify(r);
-        say(head + " " + (autoSave ? saveLast() : "पूरा जवाब नोटिफिकेशन में है। फाइल चाहिए तो फाइल बनाओ बोलिए।"));
-    }
-
-    // ======== THRON: Share से आई तस्वीर या टेक्स्ट को देखना (screenshot, error, file) ========
-    byte[] readFile(java.io.File f) throws Exception {
-        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
-            ByteArrayOutputStream bo = new ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
-            return bo.toByteArray();
-        }
-    }
-
-    void analyzeShare() {
-        if (busy) {
-            say("अभी एक काम चल रहा है, थोड़ा रुकिए।");
-            return;
-        }
-        busy = true;
-        showChar();
-        js("setStatus('देख रहा हूँ…')");
-        final java.io.File img = new java.io.File(getCacheDir(), "share.jpg");
-        final java.io.File txt = new java.io.File(getCacheDir(), "share.txt");
-        net.execute(() -> {
-            String reply;
-            try {
-                reply = callShare(img, txt);
-            } catch (Exception e) {
-                reply = "ERR:कुछ गड़बड़ हुई: " + e.getMessage();
-            }
-            img.delete();
-            txt.delete();
-            final String r = reply;
-            ui.post(() -> onDeep(r, false));
-        });
-    }
-
-    String callShare(java.io.File img, java.io.File txt) throws Exception {
-        String ask = "ये मेरे फ़ोन से भेजी गई चीज़ है। अगर इसमें कोई build या कोड की error है, तो बताओ कि गलती कहाँ है और कैसे ठीक करें, कदम-दर-कदम। "
-                + "अगर कोई और तस्वीर या लिखा हुआ है, तो बताओ उसमें क्या है और काम की बातें क्या हैं।";
-        JSONArray parts = new JSONArray().put(new JSONObject().put("text", ask));
-        if (img.exists()) {
-            String b64 = android.util.Base64.encodeToString(readFile(img), android.util.Base64.NO_WRAP);
-            parts.put(new JSONObject().put("inline_data",
-                    new JSONObject().put("mime_type", "image/jpeg").put("data", b64)));
-        } else if (txt.exists()) {
-            String t = new String(readFile(txt), "UTF-8");
-            if (t.length() > 20000) t = t.substring(t.length() - 20000);
-            parts.put(new JSONObject().put("text", t));
-        } else {
-            return "ERR:कुछ मिला नहीं, फिर से शेयर कीजिए।";
-        }
-        JSONObject body = new JSONObject();
-        String sys = personaNow()
-                + "\nअब विस्तार से जवाब दो। सबसे ऊपर पहली पंक्ति में 1-2 वाक्य का सार बोलचाल की भाषा में लिखो, "
-                + "फिर एक खाली पंक्ति छोड़कर पूरा जवाब क्रमवार दो।";
-        body.put("systemInstruction", new JSONObject().put("parts", new JSONArray().put(new JSONObject().put("text", sys))));
-        body.put("contents", new JSONArray().put(new JSONObject().put("role", "user").put("parts", parts)));
-        body.put("generationConfig", new JSONObject().put("maxOutputTokens", 4096));
-        return postWorker(body);
-    }
-
-    void longNotify(String text) {
-        try {
-            if (text.length() > 4000) text = text.substring(0, 4000);
-            NotificationManager nm = getSystemService(NotificationManager.class);
-            nm.createNotificationChannel(new NotificationChannel("thron", "थ्रोन", NotificationManager.IMPORTANCE_DEFAULT));
-            Notification n = new Notification.Builder(this, "thron")
-                    .setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle("थ्रोन का जवाब")
-                    .setContentText(text.length() > 80 ? text.substring(0, 80) : text)
-                    .setStyle(new Notification.BigTextStyle().bigText(text))
-                    .setAutoCancel(true)
-                    .build();
-            nm.notify(3, n);
-        } catch (Exception e) { }
-    }
-
-    String saveLast() {
-        if (lastLong.isEmpty()) return "अभी सेव करने के लिए कुछ नहीं है।";
-        String name = "thron_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new java.util.Date()) + ".txt";
-        try {
-            byte[] data = lastLong.getBytes("UTF-8");
-            if (Build.VERSION.SDK_INT >= 29) {
-                android.content.ContentValues v = new android.content.ContentValues();
-                v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
-                v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain");
-                v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download");
-                android.net.Uri u = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
-                if (u == null) return "फाइल नहीं बन पाई।";
-                try (OutputStream o = getContentResolver().openOutputStream(u)) {
-                    o.write(data);
-                }
-                return "फाइल Downloads में सेव कर दी, नाम " + name;
-            }
-            java.io.File dir = getExternalFilesDir(null);
-            if (dir == null) return "फाइल नहीं बन पाई।";
-            try (OutputStream o = new java.io.FileOutputStream(new java.io.File(dir, name))) {
-                o.write(data);
-            }
-            return "फाइल ऐप के फोल्डर में सेव कर दी, नाम " + name;
-        } catch (Exception e) {
-            return "फाइल नहीं बन पाई।";
-        }
-    }
-
-    String shareLast() {
-        if (lastLong.isEmpty()) return "अभी शेयर करने के लिए कुछ नहीं है।";
-        try {
-            Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, lastLong);
-            startActivity(Intent.createChooser(i, "थ्रोन").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            return "शेयर खोल दिया है।";
-        } catch (Exception e) {
-            return "शेयर नहीं खुल पाया।";
-        }
-    }
-
-    // ---------- Gemini (बाकी सारी बातें) ----------
-    void ask(final String text) {
-        busy = true;
-        js("setStatus('सोच रही हूँ…')");
-        net.execute(() -> {
-            String reply;
-            try {
-                reply = callGemini(text);
-            } catch (Exception e) {
-                reply = "ERR:कुछ गड़बड़ हुई: " + e.getMessage();
-            }
-            final String r = reply;
-            ui.post(() -> onReply(text, r));
-        });
-    }
-
-    String callGemini(String userText) throws Exception {
-        JSONObject body = new JSONObject();
-        body.put("systemInstruction", new JSONObject().put("parts",
-                new JSONArray().put(new JSONObject().put("text", personaNow()))));
-        JSONArray contents = new JSONArray();
-        synchronized (history) {
-            int from = Math.max(0, history.size() - 20);
-            while (from < history.size() && !"user".equals(history.get(from).optString("role"))) from++;
-            for (int i = from; i < history.size(); i++) contents.put(history.get(i));
-        }
-        contents.put(msgOf("user", userText));
-        body.put("contents", contents);
-
-        HttpURLConnection c = (HttpURLConnection) new URL(WORKER).openConnection();
-        c.setRequestMethod("POST");
-        c.setRequestProperty("Content-Type", "application/json");
-        c.setRequestProperty("x-miya-key", APP_KEY);
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(60000);
-        c.setDoOutput(true);
-        try (OutputStream o = c.getOutputStream()) {
-            o.write(body.toString().getBytes("UTF-8"));
-        }
-        InputStream in = c.getResponseCode() < 400 ? c.getInputStream() : c.getErrorStream();
-        ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        byte[] buf = new byte[4096];
-        int n;
-        while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
-        JSONObject j = new JSONObject(bo.toString("UTF-8"));
-        JSONArray cand = j.optJSONArray("candidates");
-        if (cand == null || cand.length() == 0) {
-            JSONObject er = j.optJSONObject("error");
-            return "ERR:जवाब नहीं मिला। " + (er != null ? er.optString("message") : "");
-        }
-        JSONArray parts = cand.getJSONObject(0).getJSONObject("content").getJSONArray("parts");
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < parts.length(); i++) sb.append(parts.getJSONObject(i).optString("text"));
-        return sb.toString();
-    }
-
-    void onReply(String userText, String r) {
-        busy = false;
-        showChar();
-        cmdUntil = System.currentTimeMillis() + CMD_WINDOW_MS;
-        boolean err = r.startsWith("ERR:");
-        String shown = err ? r.substring(4) : r;
-        if (!err) {
-            synchronized (history) {
-                history.add(msgOf("user", userText));
-                history.add(msgOf("model", r));
-                while (history.size() > 40) history.remove(0);
-                saveHist();
-            }
-        }
-        js("setText(" + JSONObject.quote(shown) + ")");
-                if (!err) speak(shown);
-    }
-    final ExecutorService voiceEx = Executors.newSingleThreadExecutor();
-    volatile android.media.AudioTrack track;
-    volatile int ttsGen = 0;
-
-    String voiceFor() {
-        if (curChar.equals("thron")) return "Alnilam";
-        if (curChar.equals("yor")) return "Kore";
-        return "Achernar";
-    }
-
-    String styleFor() {
-        if (curChar.equals("thron")) {
-            return "Say this in a calm, deep, protective voice, speaking slowly and steadily:";
-        }
-        return "Say this in a soft, calm, sweet and affectionate voice, like lovingly talking to someone close. "
-                + "Speak slowly and gently, with a tiny smile in the voice, never loud or rushed:";
-    }
-
-    void stopVoice() {
-        ttsGen++;
-        try { if (tts != null) tts.stop(); } catch (Exception e) { }
-        try { if (track != null) track.stop(); } catch (Exception e) { }
-    }
-
-    void speak(String raw) {
-        stopVoice();
-        final String t = raw.replaceAll("[*#`_]", "").trim();
-        if (t.isEmpty()) return;
-        final int gen = ttsGen;
-        final String voice = voiceFor(), style = styleFor();
-        speaking = true;
-        voiceEx.execute(() -> {
-            byte[] pcm = null;
-            try { pcm = fetchVoice(t, voice, style); } catch (Exception e) { }
-            if (gen != ttsGen) return;
-            if (pcm == null || pcm.length < 2000) {
-                ui.post(() -> { if (gen == ttsGen) fallbackTts(t); });
-                return;
-            }
-            playPcm(pcm, gen);
-        });
-    }
-
-    void fallbackTts(String t) {
-        if (!ttsReady) { speaking = false; return; }
-        boolean hi = t.matches("(?s).*[\\u0900-\\u097F].*");
-        tts.setLanguage(hi ? new Locale("hi", "IN") : Locale.US);
-        tts.setPitch(curChar.equals("thron") ? 0.8f : 1f);
-        tts.speak(t, TextToSpeech.QUEUE_FLUSH, null, "miya");
-    }
-
-    byte[] fetchVoice(String t, String voice, String style) throws Exception {
-        if (t.length() > 600) t = t.substring(0, 600);
-        JSONObject body = new JSONObject().put("text", t).put("voice", voice).put("style", style);
-        HttpURLConnection c = (HttpURLConnection) new URL(WORKER + "/tts").openConnection();
-        c.setRequestMethod("POST");
-        c.setRequestProperty("Content-Type", "application/json");
-        c.setRequestProperty("x-miya-key", APP_KEY);
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(40000);
-        c.setDoOutput(true);
-        try (OutputStream o = c.getOutputStream()) {
-            o.write(body.toString().getBytes("UTF-8"));
-        }
-        if (c.getResponseCode() >= 400) return null;
-        ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        try (InputStream in = c.getInputStream()) {
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
-        }
-        JSONObject j = new JSONObject(bo.toString("UTF-8"));
-        JSONArray cand = j.optJSONArray("candidates");
-        if (cand == null || cand.length() == 0) return null;
-        JSONArray parts = cand.getJSONObject(0).getJSONObject("content").getJSONArray("parts");
-        for (int i = 0; i < parts.length(); i++) {
-            JSONObject p = parts.getJSONObject(i);
-            JSONObject d = p.optJSONObject("inlineData");
-            if (d == null) d = p.optJSONObject("inline_data");
-            if (d != null) return android.util.Base64.decode(d.getString("data"), android.util.Base64.DEFAULT);
-        }
-        return null;
-    }
-
-    void playPcm(byte[] pcm, int gen) {
-        android.media.AudioTrack at = null;
-        try {
-            final int rate = 24000;
-            at = new android.media.AudioTrack.Builder()
-                    .setAudioAttributes(new android.media.AudioAttributes.Builder()
-                            .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
-                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                    .setAudioFormat(new android.media.AudioFormat.Builder()
-                            .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
-                            .setSampleRate(rate)
-                            .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build())
-                    .setBufferSizeInBytes(pcm.length)
-                    .setTransferMode(android.media.AudioTrack.MODE_STATIC)
-                    .build();
-            at.write(pcm, 0, pcm.length);
-            if (gen != ttsGen) { at.release(); return; }
-            track = at;
-            ui.post(() -> { if (gen == ttsGen) js("setSpeaking(true)"); });
-            at.play();
-            int frames = pcm.length / 2;
-            while (gen == ttsGen && at.getPlaybackHeadPosition() < frames - 200) {
-                Thread.sleep(40);
-            }
-        } catch (Exception e) {
-        } finally {
-            try { if (at != null) { at.stop(); at.release(); } } catch (Exception e) { }
-            if (track == at) track = null;
-            final int g = gen;
-            ui.post(() -> {
-                if (g == ttsGen) { speaking = false; js("setSpeaking(false)"); }
-            });
-        }
-    }
-    static JSONObject msgOf(String role, String text) {
-        try {
-            return new JSONObject().put("role", role)
-                    .put("parts", new JSONArray().put(new JSONObject().put("text", text)));
-        } catch (Exception e) {
-            return new JSONObject();
-        }
     }
 
     @Override
     public void onDestroy() {
-        ui.removeCallbacksAndMessages(null);
-        try { showChar(); } catch (Exception e) { }
-        try { if (batRx != null) unregisterReceiver(batRx); } catch (Exception e) { }
-        try { if (pkgRx != null) unregisterReceiver(pkgRx); } catch (Exception e) { }
-        try {
-            if (netCb != null)
-                ((android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)).unregisterNetworkCallback(netCb);
-        } catch (Exception e) { }
-        try {
-            if (web != null) {
-                wm.removeView(web);
-                web.destroy();
-                web = null;
-            }
-        } catch (Exception e) {
-        }
+        super.onDestroy();
+        if (web != null && wm != null) wm.removeView(web);
         if (rec != null) rec.destroy();
-       stopVoice();
-        voiceEx.shutdownNow();
         if (tts != null) tts.shutdown();
         net.shutdownNow();
-        super.onDestroy();
     }
 }

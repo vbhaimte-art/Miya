@@ -7,7 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.graphics.Color;
-import android.os.Bundle;
+import android.graphics.PixelFormat;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -18,10 +18,7 @@ import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.view.Gravity;
-import android.view.View;
 import android.view.WindowManager;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.TextView;
 
 import java.io.OutputStream;
@@ -37,7 +34,7 @@ public class MiyaService extends Service {
     static final int TERMUX_PORT = 5555;
     
     WindowManager wm;
-    WebView web;
+    TextView overlayView; // WebView ki jagah TextView (stability ke liye)
     WindowManager.LayoutParams lp;
     final Handler ui = new Handler(Looper.getMainLooper());
     SpeechRecognizer rec;
@@ -47,6 +44,8 @@ public class MiyaService extends Service {
     boolean termuxConnected = false;
     Socket termuxSocket;
     OutputStream termuxOut;
+    
+    ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override
     public IBinder onBind(Intent i) { return null; }
@@ -62,10 +61,13 @@ public class MiyaService extends Service {
         if (!Settings.canDrawOverlays(this)) {
             Log.d("MIYA", "Overlay permission needed");
             Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
+            stopSelf();
+            return START_NOT_STICKY;
         }
 
-        if (web == null) {
+        if (overlayView == null) {
             startFg();          
             buildOverlay();     
             initTts();          
@@ -82,7 +84,7 @@ public class MiyaService extends Service {
         }
         
         Intent stop = new Intent(this, MiyaService.class).setAction("STOP");
-        PendingIntent pi = PendingIntent.getService(this, 0, stop, PendingIntent.FLAG_MUTABLE);
+        PendingIntent pi = PendingIntent.getService(this, 0, stop, PendingIntent.FLAG_IMMUTABLE);
         
         Notification n = new Notification.Builder(this, "miya")
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
@@ -96,23 +98,154 @@ public class MiyaService extends Service {
 
     void buildOverlay() {
         wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        
+        // Android ke naye versions ke mutabiq LayoutParams
+        int layoutFlag = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+
         lp = new WindowManager.LayoutParams(
-                300, 100, 
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT, 
+                layoutFlag,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT
         );
         lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
         lp.y = 100;
 
-        // Use a simple TextView instead of WebView for stability if WebView crashes
-        TextView tv = new TextView(this);
-        tv.setLayoutParams(new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT
-        ));
-        tv.setBackgroundColor(Color.argb(180, 0, 0, 0));
-        tv.setTextColor(Color.GREEN);
-        tv.setTextSize(14);
-        tv.setText("Miya Ready...");
-        tv.setPadding
+        // Floating TextView setup
+        overlayView = new TextView(this);
+        overlayView.setBackgroundColor(Color.argb(180, 0, 0, 0));
+        overlayView.setTextColor(Color.GREEN);
+        overlayView.setTextSize(14);
+        overlayView.setText("Miya Ready...");
+        overlayView.setPadding(20, 10, 20, 10);
+
+        try {
+            wm.addView(overlayView, lp);
+        } catch (Exception e) {
+            Log.e("MIYA", "Overlay add failed: " + e.getMessage());
+        }
+    }
+
+    void initTts() {
+        tts = new TextToSpeech(this, status -> {
+            if (status == TextToSpeech.SUCCESS) {
+                tts.setLanguage(new Locale("hi", "IN")); // Hindi/English ke liye
+                ttsReady = true;
+            }
+        });
+    }
+
+    void startListening() {
+        ui.post(() -> {
+            try {
+                if (SpeechRecognizer.isRecognitionAvailable(this)) {
+                    rec = SpeechRecognizer.createSpeechRecognizer(this);
+                    rec.setRecognitionListener(new RecognitionListener() {
+                        @Override public void onReadyForSpeech(Bundle params) {}
+                        @Override public void onBeginningOfSpeech() {}
+                        @Override public void onRmsChanged(float rmsdB) {}
+                        @Override public void onBufferReceived(byte[] buffer) {}
+                        @Override public void onEndOfSpeech() {}
+                        
+                        @Override
+                        public void onError(int error) {
+                            // Dubara listening start karne ke liye
+                            restartListening();
+                        }
+
+                        @Override
+                        public void onResults(Bundle results) {
+                            ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                            if (matches != null && !matches.isEmpty()) {
+                                String spokenText = matches.get(0);
+                                updateOverlayText("Said: " + spokenText);
+                                sendToTermux(spokenText);
+                            }
+                            restartListening();
+                        }
+
+                        @Override public void onPartialResults(Bundle partialResults) {}
+                        @Override public void onEvent(int eventType, Bundle params) {}
+                    });
+
+                    Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
+                    rec.startListening(intent);
+                }
+            } catch (Exception e) {
+                Log.e("MIYA", "Speech error: " + e.getMessage());
+            }
+        });
+    }
+
+    void restartListening() {
+        ui.postDelayed(() -> {
+            try {
+                if (rec != null) {
+                    Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+                    rec.startListening(intent);
+                }
+            } catch (Exception e) {
+                Log.e("MIYA", "Restart error: "+ e.getMessage());
+            }
+        }, 1000);
+    }
+
+    void tryConnectTermux() {
+        executor.execute(() -> {
+            try {
+                termuxSocket = new Socket(TERMUX_HOST, TERMUX_PORT);
+                termuxOut = termuxSocket.getOutputStream();
+                termuxConnected = true;
+                Log.d("MIYA", "Connected to Termux server!");
+            } catch (Exception e) {
+                termuxConnected = false;
+                Log.e("MIYA", "Termux connection failed: " + e.getMessage());
+            }
+        });
+    }
+
+    void sendToTermux(String text) {
+        executor.execute(() -> {
+            try {
+                if (termuxConnected && termuxOut != null) {
+                    termuxOut.write((text + "\n").getBytes());
+                    termuxOut.flush();
+                }
+            } catch (Exception e) {
+                termuxConnected = false;
+                Log.e("MIYA", "Send failed, reconnecting...");
+                tryConnectTermux();
+            }
+        });
+    }
+
+    void updateOverlayText(String text) {
+        ui.post(() -> {
+            if (overlayView != null) {
+                overlayView.setText(text);
+            }
+        });
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (overlayView != null && wm != null) {
+            wm.removeView(overlayView);
+        }
+        if (rec != null) {
+            rec.destroy();
+        }
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+        }
+        try {
+            if (termuxSocket != null) termuxSocket.close();
+        } catch (Exception ignored) {}
+    }
+}

@@ -1,4 +1,4 @@
-package com.miya.app;
+            package com.miya.app;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -8,47 +8,91 @@ import android.app.Service;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.drawable.Icon;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
+import android.os.BatteryManager;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.WindowManager;
-import android.widget.TextView;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
+import androidx.webkit.WebViewAssetLoader;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.Socket;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class MiyaService extends Service {
 
+    // --- CONFIGURATION ---
+    static final String WORKER_URL = "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
     static final String TERMUX_HOST = "127.0.0.1";
     static final int TERMUX_PORT = 5555;
     
+    // Personas
+    static final String PERSONA_MIYA = "तुम 'मिया' हो, मेरी निजी असिस्टेंट। मुझसे हिंदी में बात करो। जवाब छोटे रखो (1-3 वाक्य)।";
+    static final String PERSONA_THRON = "तुम 'थ्रोन' हो, एक साइबरनेटिक सिक्योरिटी एक्सपर्ट। तुम्हारा काम है 'बॉस' के लिए सुरक्षा समाधान बनाना। " +
+        "जब बॉस कोई कमैंड दे (जैसे wifi, dos, malware, scan), तब उसे सीधा Technical Code/Commands देना (Python, Bash, Nmap, Hashcat)। " +
+        "कोड को Markdown code blocks में डालना। बोलते समय (TTS) सिर्फ summary बताना, पूरा कोड न पढ़ना। " +
+        "हमेशा JSON format में रिस्पॉन्स देना: {\"action\": \"TYPE\", \"target\": \"TARGET\", \"options\": \"FLAGS\", \"reasoning\": \"SPOKEN_REPLY\"}";
+
+    // --- STATE VARIABLES ---
     WindowManager wm;
-    TextView overlayView; // WebView ki jagah TextView (stability ke liye)
+    WebView web;
     WindowManager.LayoutParams lp;
     final Handler ui = new Handler(Looper.getMainLooper());
     SpeechRecognizer rec;
     TextToSpeech tts;
-    boolean ttsReady = false;
+    boolean ttsReady = false, speaking = false, busy = false;
+    boolean listening = false;
+    final List<JSONObject> history = new ArrayList<>();
+    final ExecutorService net = Executors.newSingleThreadExecutor();
     
+    // Termux State
     boolean termuxConnected = false;
     Socket termuxSocket;
     OutputStream termuxOut;
-    
-    ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    // UI Drag State
+    float downX, downY;
+    int startX, startY;
+    boolean moved;
 
     @Override
-    public IBinder onBind(Intent i) { return null; }
+    public IBinder onBind(Intent i) {
+        return null;
+    }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startFg) {
@@ -57,195 +101,40 @@ public class MiyaService extends Service {
             return START_NOT_STICKY;
         }
         
-        // Permission check
+        // Check Overlay Permission
         if (!Settings.canDrawOverlays(this)) {
-            Log.d("MIYA", "Overlay permission needed");
-            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName()));
             startActivity(i);
-            stopSelf();
-            return START_NOT_STICKY;
+            return START_STICKY;
         }
 
-        if (overlayView == null) {
-            startFg();          
-            buildOverlay();     
-            initTts();          
-            startListening();   
-            tryConnectTermux(); 
+        if (web == null) {
+            loadHistory();
+            startFg();
+            buildOverlay();
+            startRoam();
+            initTts();
+            startWatchdog();
+            tryConnectTermux();
         }
         return START_STICKY;
     }
 
+    // --- FOREGROUND NOTIFICATION ---
     void startFg() {
         NotificationManager nm = getSystemService(NotificationManager.class);
-        if (nm != null) {
-            nm.createNotificationChannel(new NotificationChannel("miya", "Miya AI", NotificationManager.IMPORTANCE_LOW));
-        }
-        
+        nm.createNotificationChannel(new NotificationChannel("miya", "मिया", NotificationManager.IMPORTANCE_LOW));
         Intent stop = new Intent(this, MiyaService.class).setAction("STOP");
-        PendingIntent pi = PendingIntent.getService(this, 0, stop, PendingIntent.FLAG_IMMUTABLE);
-        
+        PendingIntent pi = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification n = new Notification.Builder(this, "miya")
                 .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-                .setContentTitle("Miya Active")
-                .setContentText("Voice Commands ON")
-                .addAction(0, "Stop", pi) 
+                .setContentTitle("मिया चल रही है")
+                .setContentText("बंद करने के लिए नीचे का बटन दबाएँ")
+                .addAction(new Notification.Action.Builder(
+                        Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel), "बंद करें", pi).build())
                 .build();
-                
         startForeground(1, n);
     }
 
-    void buildOverlay() {
-        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
-        
-        // Android ke naye versions ke mutabiq LayoutParams
-        int layoutFlag = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
-
-        lp = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT, 
-                layoutFlag,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-                PixelFormat.TRANSLUCENT
-        );
-        lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-        lp.y = 100;
-
-        // Floating TextView setup
-        overlayView = new TextView(this);
-        overlayView.setBackgroundColor(Color.argb(180, 0, 0, 0));
-        overlayView.setTextColor(Color.GREEN);
-        overlayView.setTextSize(14);
-        overlayView.setText("Miya Ready...");
-        overlayView.setPadding(20, 10, 20, 10);
-
-        try {
-            wm.addView(overlayView, lp);
-        } catch (Exception e) {
-            Log.e("MIYA", "Overlay add failed: " + e.getMessage());
-        }
-    }
-
-    void initTts() {
-        tts = new TextToSpeech(this, status -> {
-            if (status == TextToSpeech.SUCCESS) {
-                tts.setLanguage(new Locale("hi", "IN")); // Hindi/English ke liye
-                ttsReady = true;
-            }
-        });
-    }
-
-    void startListening() {
-        ui.post(() -> {
-            try {
-                if (SpeechRecognizer.isRecognitionAvailable(this)) {
-                    rec = SpeechRecognizer.createSpeechRecognizer(this);
-                    rec.setRecognitionListener(new RecognitionListener() {
-                        @Override public void onReadyForSpeech(Bundle params) {}
-                        @Override public void onBeginningOfSpeech() {}
-                        @Override public void onRmsChanged(float rmsdB) {}
-                        @Override public void onBufferReceived(byte[] buffer) {}
-                        @Override public void onEndOfSpeech() {}
-                        
-                        @Override
-                        public void onError(int error) {
-                            // Dubara listening start karne ke liye
-                            restartListening();
-                        }
-
-                        @Override
-                        public void onResults(Bundle results) {
-                            ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                            if (matches != null && !matches.isEmpty()) {
-                                String spokenText = matches.get(0);
-                                updateOverlayText("Said: " + spokenText);
-                                sendToTermux(spokenText);
-                            }
-                            restartListening();
-                        }
-
-                        @Override public void onPartialResults(Bundle partialResults) {}
-                        @Override public void onEvent(int eventType, Bundle params) {}
-                    });
-
-                    Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN");
-                    rec.startListening(intent);
-                }
-            } catch (Exception e) {
-                Log.e("MIYA", "Speech error: " + e.getMessage());
-            }
-        });
-    }
-
-    void restartListening() {
-        ui.postDelayed(() -> {
-            try {
-                if (rec != null) {
-                    Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-                    intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-                    rec.startListening(intent);
-                }
-            } catch (Exception e) {
-                Log.e("MIYA", "Restart error: "+ e.getMessage());
-            }
-        }, 1000);
-    }
-
-    void tryConnectTermux() {
-        executor.execute(() -> {
-            try {
-                termuxSocket = new Socket(TERMUX_HOST, TERMUX_PORT);
-                termuxOut = termuxSocket.getOutputStream();
-                termuxConnected = true;
-                Log.d("MIYA", "Connected to Termux server!");
-            } catch (Exception e) {
-                termuxConnected = false;
-                Log.e("MIYA", "Termux connection failed: " + e.getMessage());
-            }
-        });
-    }
-
-    void sendToTermux(String text) {
-        executor.execute(() -> {
-            try {
-                if (termuxConnected && termuxOut != null) {
-                    termuxOut.write((text + "\n").getBytes());
-                    termuxOut.flush();
-                }
-            } catch (Exception e) {
-                termuxConnected = false;
-                Log.e("MIYA", "Send failed, reconnecting...");
-                tryConnectTermux();
-            }
-        });
-    }
-
-    void updateOverlayText(String text) {
-        ui.post(() -> {
-            if (overlayView != null) {
-                overlayView.setText(text);
-            }
-        });
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        if (overlayView != null && wm != null) {
-            wm.removeView(overlayView);
-        }
-        if (rec != null) {
-            rec.destroy();
-        }
-        if (tts != null) {
-            tts.stop();
-            tts.shutdown();
-        }
-        try {
-            if (termuxSocket != null) termuxSocket.close();
-        } catch (Exception ignored) {}
-    }
-}
+    // --- OVERLAY UI (3D AVATAR) ---
+    void buildOverlay 

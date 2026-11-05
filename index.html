@@ -13,28 +13,30 @@
         /* Main Interface */
         #main-ui { display: flex; justify-content: center; align-items: center; height: 100vh; text-align: center; flex-direction: column; padding: 20px; box-sizing: border-box; }
         
-        /* Control Buttons (For Manual Testing if Voice Fails) */
+        /* Control Buttons */
         .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 300px; margin-top: 20px; }
         .ctrl-btn { background: #222; border: 1px solid #0f0; color: #0f0; padding: 15px; font-size: 14px; cursor: pointer; border-radius: 5px; }
         .ctrl-btn:active { background: #0f0; color: #000; }
 
-        #mic-btn { width: 80px; height: 80px; border-radius: 50%; border: 2px solid #0f0; background: transparent; color: #0f0; font-size: 30px; cursor: pointer; box-shadow: 0 0 10px #0f0; margin-bottom: 20px; }
-        #status-text { margin-top: 20px; font-size: 14px; opacity: 0.8; word-break: break-all; }
+        #mic-btn { width: 80px; height: 80px; border-radius: 50%; border: 2px solid #0f0; background: transparent; color: #0f0; font-size: 30px; cursor: pointer; box-shadow: 0 0 10px #0f0; margin-bottom: 20px; outline: none; }
+        #mic-btn:active { background: #0f0; color: #000; }
+
+        #status-text { margin-top: 20px; font-size: 14px; opacity: 0.8; word-break: break-all; padding: 0 10px; }
 
         /* Tool Overlays */
-        .tool-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 100; display: none; padding: 20px; box-sizing: border-box; flex-direction: column; }
+        .tool-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 100; display: none; padding: 20px; box-sizing: border-box; flex-direction: column; justify-content: center; align-items: center; }
         
         /* Camera Styles */
-        #camera-feed { width: 100%; height: 70%; object-fit: cover; border: 2px solid #0f0; background: #111; }
+        #camera-feed { width: 100%; max-height: 60vh; object-fit: cover; border: 2px solid #0f0; background: #111; }
         
         /* Logs */
-        #network-log, #scrape-log { font-size: 12px; color: #0f0; overflow-y: auto; height: 70%; border: 1px solid #333; padding: 5px; background: #111; }
+        #network-log, #scrape-log { font-size: 12px; color: #0f0; overflow-y: auto; width: 100%; max-width: 400px; height: 50vh; border: 1px solid #333; padding: 10px; background: #111; text-align: left; box-sizing: border-box; }
         
         /* DoS Styles */
-        #dos-bar { width: 100%; height: 20px; background: #333; margin-top: 10px; }
+        #dos-bar { width: 100%; max-width: 400px; height: 20px; background: #333; margin-top: 10px; border: 1px solid #0f0; }
         #dos-fill { width: 0%; height: 100%; background: red; transition: width 0.1s; }
 
-        .close-btn { position: absolute; top: 10px; right: 10px; background: red; color: white; border: none; padding: 5px 15px; cursor: pointer; font-weight: bold; z-index: 101; }
+        .close-btn { position: absolute; top: 20px; right: 20px; background: red; color: white; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; z-index: 101; border-radius: 5px; }
     </style>
 </head>
 <body>
@@ -44,11 +46,11 @@
         <button id="mic-btn" onclick="startListening()">🎤</button>
         <p id="status-text">System Ready... Tap Mic or Use Buttons Below</p>
         
-        <!-- Manual Controls (Fallback for Voice) -->
+        <!-- Manual Controls -->
         <div class="controls">
             <button class="ctrl-btn" onclick="executeTool('openCamera')">📷 Spy Cam</button>
             <button class="ctrl-btn" onclick="executeTool('scanNetwork')">📡 Scan Net</button>
-            <button class="ctrl-btn" onclick="executeTool('startDos')">⚠️ DoS Attack</button>
+            <button class="ctrl-btn" onclick="executeTool('startDos')">⚠️ DoS Sim</button>
             <button class="ctrl-btn" onclick="executeTool('scrapeData')">🕸️ Scrape Data</button>
         </div>
     </div>
@@ -58,7 +60,7 @@
         <button class="close-btn" onclick="closeTools()">X</button>
         <h2>📷 SPY MODE ACTIVE</h2>
         <video id="camera-feed" autoplay playsinline muted></video>
-        <p>Recording... 🟢</p>
+        <p style="margin-top: 15px;">Recording... 🟢</p>
     </div>
 
     <!-- Network Scanner Overlay -->
@@ -95,41 +97,65 @@
 
         let recognition;
         let mediaStream = null;
+        let activeIntervals = [];
+
+        // Clear all running intervals when closing tools
+        function clearAllIntervals() {
+            activeIntervals.forEach(clearInterval);
+            activeIntervals = [];
+        }
 
         // --- Voice Recognition Setup ---
         function startListening() {
             if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-                alert("Voice not supported on this browser. Use Chrome.");
+                alert("Voice recognition not supported on this browser. Use Chrome.");
                 return;
             }
             
-            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.lang = 'en-IN'; 
-            
-            recognition.onresult = function(event) {
-                const last = event.results.length - 1;
-                const transcript = event.results[last][0].transcript.toLowerCase().trim();
-                document.getElementById('status-text').innerText = `Heard: "${transcript}"`;
+            try {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                recognition.continuous = false; // Mobile par continuous stability ke liye false behtar hai
+                recognition.interimResults = false;
+                recognition.lang = 'en-IN'; 
                 
-                for (let cmd in commands) {
-                    if (transcript.includes(cmd)) {
-                        executeTool(commands[cmd]);
-                        break;
-                    }
-                }
-            };
-            
-            recognition.start();
-        }
+                document.getElementById('status-text').innerText = "Listening... Speak now 🎙️";
 
-        // Start listening automatically on load too
-        window.onload = startListening;
+                recognition.onresult = function(event) {
+                    const transcript = event.results[0][0].transcript.toLowerCase().trim();
+                    document.getElementById('status-text').innerText = `Heard: "${transcript}"`;
+                    
+                    let executed = false;
+                    for (let cmd in commands) {
+                        if (transcript.includes(cmd)) {
+                            executeTool(commands[cmd]);
+                            executed = true;
+                            break;
+                        }
+                    }
+                    if (!executed) {
+                        speak("Command not recognized");
+                    }
+                };
+
+                recognition.onerror = function(event) {
+                    document.getElementById('status-text').innerText = "Mic Error: " + event.error;
+                };
+
+                recognition.onend = function() {
+                    // Automatically restart listening loop if needed, or leave idle
+                    document.getElementById('status-text').innerText = "System Idle. Tap Mic.";
+                };
+                
+                recognition.start();
+            } catch (err) {
+                document.getElementById('status-text').innerText = "Speech init failed: " + err.message;
+            }
+        }
 
         // --- Tool Execution Logic ---
         function executeTool(toolName) {
-            closeTools(); // Clear any existing overlay
+            closeTools(); // Clear any existing overlay/intervals
             
             switch(toolName) {
                 case "openCamera":
@@ -152,7 +178,7 @@
                     speak("Initiating DoS attack simulation");
                     break;
                 case "closeTools":
-                    stopCamera();
+                    closeTools();
                     break;
             }
         }
@@ -162,6 +188,7 @@
         }
 
         function closeTools() {
+            clearAllIntervals();
             document.querySelectorAll('.tool-overlay').forEach(el => el.style.display = 'none');
             stopCamera();
             document.getElementById('status-text').innerText = "System Idle";
@@ -173,11 +200,12 @@
         async function startCamera() {
             try {
                 const video = document.getElementById('camera-feed');
-                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
                 video.srcObject = mediaStream;
                 openPanel('spy-panel');
             } catch (err) {
-                document.getElementById('status-text').innerText = "Camera Access Denied. Check Permissions.";
+                document.getElementById('status-text').innerText = "Camera Access Denied or Not Supported.";
+                alert("Camera permission required. Ensure app has camera permission.");
             }
         }
 
@@ -186,62 +214,73 @@
                 mediaStream.getTracks().forEach(track => track.stop());
                 mediaStream = null;
             }
+            const video = document.getElementById('camera-feed');
+            if (video) video.srcObject = null;
         }
 
         // 2. Network Scan Simulation
         function simulateScan() {
             const log = document.getElementById('network-log');
+            log.innerHTML = "Initializing scan...";
             const devices = ["Router: 192.168.1.1", "Phone: 192.168.1.5", "Laptop: 192.168.1.12", "IoT Device: 192.168.1.20"];
             let i = 0;
             const interval = setInterval(() => {
                 if (i >= devices.length) {
                     clearInterval(interval);
-                    log.innerHTML += "<br><b>Scan Complete.</b>";
+                    log.innerHTML += "<br><br><b>Scan Complete. All devices secure.</b>";
                     return;
                 }
                 log.innerHTML += `<br>> Found: ${devices[i]}`;
                 log.scrollTop = log.scrollHeight;
                 i++;
             }, 1000);
+            activeIntervals.push(interval);
         }
 
         // 3. DoS Attack Simulation
         function simulateDos() {
             const fill = document.getElementById('dos-fill');
             const status = document.getElementById('dos-status');
+            fill.style.width = '0%';
             let packets = 0;
             const interval = setInterval(() => {
-                packets += Math.floor(Math.random() * 500);
-                fill.style.width = Math.min(packets / 100, 100) + '%';
+                packets += Math.floor(Math.random() * 2500) + 500;
+                let percent = Math.min((packets / 50000) * 100, 100);
+                fill.style.width = percent + '%';
                 status.innerText = `Packets sent: ${packets}`;
-                if (packets > 50000) {
+                if (packets >= 50000) {
                     clearInterval(interval);
-                    status.innerText = "Attack Completed";
+                    status.innerText = "Simulation Completed Successfully";
                 }
             }, 100);
+            activeIntervals.push(interval);
         }
 
         // 4. Data Scrape Simulation
         function simulateScrape() {
             const log = document.getElementById('scrape-log');
-            const data = ["Email: user@example.com", "Pass: ********", "Token: xyz-123"];
+            log.innerHTML = "Connecting to API endpoints...";
+            const data = ["Target: local_database.db", "Fetching User Profiles...", "Email: user@example.com", "Session Token: xyz-9876-token", "Extraction Successful."];
             let i = 0;
             const interval = setInterval(() => {
                 if (i >= data.length) {
                     clearInterval(interval);
-                    log.innerHTML += "<br><b>Scraping Finished.</b>";
+                    log.innerHTML += "<br><br><b>Scraping Finished.</b>";
                     return;
                 }
                 log.innerHTML += `<br>> Extracted: ${data[i]}`;
                 log.scrollTop = log.scrollHeight;
                 i++;
             }, 800);
+            activeIntervals.push(interval);
         }
 
         // Helper: Text to Speech
         function speak(text) {
             if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel(); // Purana speech cancel karein
                 const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = 1.0;
                 window.speechSynthesis.speak(utterance);
             }
         }

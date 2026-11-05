@@ -23,9 +23,11 @@ import android.speech.tts.TextToSpeech;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.util.DisplayMetrics;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -109,6 +111,7 @@ public class MiyaService extends Service {
     float downX, downY;
     int startX, startY;
     boolean moved;
+    boolean expanded = false; // false = chhota bubble, true = buttons+input wala panel
 
     // Pending password flow: jab koi setup action maanga jaaye to pehle ye bharna padta hai
     String pendingAction = null; // "ENTER_SETUP" | "SET_PASSWORD" | "RUN_TERMUX:<cmd>"
@@ -167,6 +170,7 @@ public class MiyaService extends Service {
         ws.setDomStorageEnabled(true);
         web.setWebViewClient(new WebViewClient());
         web.setBackgroundColor(0x00000000);
+        web.addJavascriptInterface(new JsBridge(), "AndroidBridge");
 
         int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -206,21 +210,70 @@ public class MiyaService extends Service {
     }
 
     String bubbleHtml() {
-        return "<html><body style='margin:0;background:transparent'>"
-             + "<div style='width:60px;height:60px;border-radius:50%;background:#111;"
-             + "border:2px solid #0f0;display:flex;align-items:center;justify-content:center;"
-             + "font-size:26px;color:#0f0;font-family:monospace'>" + (setupMode ? "⚙" : "🎤") + "</div>"
-             + "</body></html>";
+        if (!expanded) {
+            return "<html><body style='margin:0;background:transparent'>"
+                 + "<div style='width:60px;height:60px;border-radius:50%;background:#111;"
+                 + "border:2px solid #0f0;display:flex;align-items:center;justify-content:center;"
+                 + "font-size:26px;color:#0f0;font-family:monospace'>" + (setupMode ? "⚙" : "🎤") + "</div>"
+                 + "</body></html>";
+        }
+        String modeBtn = setupMode
+            ? "<button onclick=\"send('normal mode')\">⬅ Normal Mode</button>"
+            : "<button onclick=\"send('setup mode')\">⚙ Setup Mode</button>";
+        return "<html><body style='margin:0;background:#000;color:#0f0;font-family:monospace;"
+            + "border:2px solid #0f0;border-radius:10px;box-sizing:border-box;padding:12px'>"
+            + "<style>button{background:#222;border:1px solid #0f0;color:#0f0;padding:10px;"
+            + "font:13px monospace;border-radius:5px;margin:3px;width:100%}"
+            + "input{background:#111;border:1px solid #0f0;color:#0f0;padding:8px;font:13px monospace;"
+            + "width:100%;box-sizing:border-box;margin:3px 0}</style>"
+            + "<div style='display:flex;justify-content:space-between;align-items:center'>"
+            + "<b>🎙️ Miya</b><button style='width:auto;padding:4px 10px' onclick=\"send('CLOSE_PANEL')\">✖</button></div>"
+            + "<button onclick=\"send('LISTEN')\">🎤 Bolo</button>"
+            + modeBtn
+            + "<button onclick=\"send('web search ' + document.getElementById('q').value)\">🔎 Web Search</button>"
+            + "<input id='q' placeholder='search query...'>"
+            + "<button onclick=\"send('security concepts')\">🎓 Security Concepts</button>"
+            + "<button onclick=\"send('apne baare me batao')\">ℹ️ About Miya</button>"
+            + "<input id='cmd' placeholder='Command type karo...' onkeydown=\"if(event.key==='Enter'){send(document.getElementById('cmd').value);document.getElementById('cmd').value='';}\">"
+            + "<button onclick=\"var v=document.getElementById('cmd').value; document.getElementById('cmd').value=''; send(v);\">▶ Bhejo</button>"
+            + "<script>function send(t){ if(t) AndroidBridge.send(t); }</script>"
+            + "</body></html>";
+    }
+
+    // Buttons se JS yahan se Java ko command bhejta hai — voice jaisa hi route hota hai
+    class JsBridge {
+        @JavascriptInterface
+        public void send(String text) {
+            ui.post(() -> {
+                if ("CLOSE_PANEL".equals(text)) { collapsePanel(); return; }
+                if ("LISTEN".equals(text)) { listenOnce(); return; }
+                handleCommand(text);
+            });
+        }
     }
 
     void onBubbleTap() {
         if (busy) return;
-        if (awaitingPassword) {
-            // Tap ki jagah voice se password lega — listenOnce() already password flow ko jaanta hai.
-            listenOnce();
-            return;
-        }
-        listenOnce();
+        if (!expanded) { expandPanel(); return; }
+    }
+
+    void expandPanel() {
+        expanded = true;
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        lp.width = (int) (dm.widthPixels * 0.8);
+        lp.height = (int) (dm.heightPixels * 0.55);
+        lp.flags = 0; // focusable banao taaki text input me keyboard aaye
+        wm.updateViewLayout(web, lp);
+        refreshBubble();
+    }
+
+    void collapsePanel() {
+        expanded = false;
+        lp.width = WindowManager.LayoutParams.WRAP_CONTENT;
+        lp.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        lp.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        wm.updateViewLayout(web, lp);
+        refreshBubble();
     }
 
     // ---------------- TTS ----------------
@@ -253,7 +306,7 @@ public class MiyaService extends Service {
             @Override public void onResults(android.os.Bundle b) {
                 listening = false;
                 ArrayList<String> r = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                if (r != null && !r.isEmpty()) onHeard(r.get(0));
+                if (r != null && !r.isEmpty()) handleCommand(r.get(0));
             }
             @Override public void onError(int e) { listening = false; }
             @Override public void onReadyForSpeech(android.os.Bundle b) {}
@@ -268,7 +321,7 @@ public class MiyaService extends Service {
     }
 
     // ---------------- COMMAND ROUTING ----------------
-    void onHeard(String text) {
+    void handleCommand(String text) {
         String t = text.trim();
 
         // Password flow jo chal raha hai usko pehle handle karo
@@ -279,27 +332,33 @@ public class MiyaService extends Service {
 
         String low = t.toLowerCase(Locale.ROOT);
 
-        if (low.contains("setup mode") || low.contains("author mode") || low.contains("setup kholo")) {
+        if (any(low, "setup mode", "author mode", "setup kholo", "setup on", "open setup",
+                "unlock setup", "setup chalu", "admin mode", "developer mode", "setup shuru")) {
             askPassword("ENTER_SETUP");
             return;
         }
-        if (low.contains("password badlo") || low.contains("naya password")) {
+        if (any(low, "password badlo", "naya password", "change password", "password change karo",
+                "reset password", "password update karo", "naya pass", "password badal do",
+                "set new password", "password replace karo")) {
             if (!setupMode) { askPassword("SET_PASSWORD"); return; }
             promptNewPassword();
             return;
         }
-        if (low.contains("normal mode") || low.contains("setup band")) {
+        if (any(low, "normal mode", "setup band", "exit setup", "close setup", "normal pe aao",
+                "setup off", "band karo setup", "wapas normal", "normal wapas", "setup bandh")) {
             setupMode = false;
             refreshBubble();
             speak("Normal mode me wapas");
             return;
         }
-        if (low.contains("apne baare") || low.contains("khud ke baare") || low.contains("about yourself")) {
+        if (any(low, "apne baare", "khud ke baare", "about yourself", "tumhare baare", "tum kya ho",
+                "apna parichay", "who are you", "what are you", "apne features", "introduce yourself")) {
             aboutSelf();
             return;
         }
-        if (low.startsWith("search ") || low.startsWith("web search ")) {
-            String q = t.replaceFirst("(?i)^(web\\s+)?search\\s+(for\\s+)?", "").trim();
+        if (low.startsWith("search ") || low.startsWith("web search ") || low.startsWith("google ")
+                || low.startsWith("dhoondo ")) {
+            String q = t.replaceFirst("(?i)^(web\\s+)?(search|google|dhoondo)\\s+(for\\s+)?", "").trim();
             webSearch(q);
             return;
         }
@@ -307,13 +366,15 @@ public class MiyaService extends Service {
             speak("Kya search karu? Bolo: search, phir apni query");
             return;
         }
-        if (low.contains("security concept") || low.contains("ethical hacking")) {
+        if (any(low, "security concept", "ethical hacking", "hacking samjhao", "security samjhao",
+                "cyber security", "hacking ke baare", "explain hacking", "security education",
+                "defense concept", "hacking kya hota")) {
             secConcepts();
             return;
         }
-        if (setupMode && low.startsWith("termux ")) {
+        if (setupMode && (low.startsWith("termux ") || low.startsWith("shell "))) {
             // Setup mode me hi Termux command chalegi, aur wo bhi sirf coding/automation daayre ki
-            runTermux(t.substring(7).trim());
+            runTermux(t.replaceFirst("(?i)^(termux|shell)\\s+", "").trim());
             return;
         }
 
@@ -359,6 +420,12 @@ public class MiyaService extends Service {
             "Network scanning matlab network par khule ports dekhna, defensive use khud ke network " +
             "ko audit karna hai. " +
             "Password security matlab lamba, unique password aur password manager use karna.");
+    }
+
+    // ---- Ek se zyada phrase variations check karne ka helper ----
+    boolean any(String text, String... options) {
+        for (String o : options) if (text.contains(o)) return true;
+        return false;
     }
 
     void refreshBubble() {
@@ -492,3 +559,4 @@ public class MiyaService extends Service {
         net.shutdownNow();
     }
 }
+    

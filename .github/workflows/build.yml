@@ -103,27 +103,24 @@ jobs:
             print(f"❌ Patch failed: {e}")
           PYEOF
 
-      - name: Generate Gradle Wrapper & Build APK
+      - name: Build Debug APK
         run: |
           cd miya-app
-          if [ ! -f "gradlew" ]; then
-            echo "🔧 Creating Gradle Wrapper manually..."
-            mkdir -p gradle/wrapper
-            cat > gradle/wrapper/gradle-wrapper.properties <<'PROPS'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          PROPS
-            wget -q https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar -O gradle/wrapper/gradle-wrapper.jar
-            cat > gradlew <<'SCRIPT'
-          #!/bin/sh
-          exec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"
-          SCRIPT
-            chmod +x gradlew
-            echo "✅ Gradle Wrapper created successfully"
-          fi
+          
+          # Ensure wrapper properties exist
+          mkdir -p gradle/wrapper
+          cat > gradle/wrapper/gradle-wrapper.properties <<'PROPS'
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+PROPS
+
+          # Generate proper wrapper using system gradle
+          gradle wrapper --gradle-version 8.9
+          
+          # Build APK
           ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Rename APK

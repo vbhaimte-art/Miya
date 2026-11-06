@@ -1,0 +1,35 @@
+package com.miya.app;
+
+import android.app.*;
+import android.content.Intent;
+import android.os.Build;
+import android.os.IBinder;
+import androidx.core.app.NotificationCompat;
+
+public class MiyaService extends Service {
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch = new NotificationChannel(
+                "miya_channel", "Miya AI Service", NotificationManager.IMPORTANCE_LOW);
+            getSystemService(NotificationManager.class).createNotificationChannel(ch);
+            
+            Notification n = new NotificationCompat.Builder(this, "miya_channel")
+                .setContentTitle("Miya AI Active")
+                .setContentText("Listening...")
+                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                .build();
+            startForeground(1, n);
+        }
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) { return null; }
+    
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        // TODO: Add Wake Word Detection Logic Here
+        return START_STICKY;
+    }
+}

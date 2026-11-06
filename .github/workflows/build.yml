@@ -104,28 +104,7 @@ jobs:
           PYEOF
 
       - name: Build Debug APK
-      run: |
-          cd miya-app
-          
-          # Create wrapper directory
-          mkdir -p gradle/wrapper
-          
-          # Write properties using echo (Safe for mobile editors)
-          echo "distributionBase=GRADLE_USER_HOME" > gradle/wrapper/gradle-wrapper.properties
-          echo "distributionPath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
-          echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip" >> gradle/wrapper/gradle-wrapper.properties
-          echo "zipStoreBase=GRADLE_USER_HOME" >> gradle/wrapper/gradle-wrapper.properties
-          echo "zipStorePath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
-
-          # Download gradle-wrapper.jar directly from official source
-          wget -q https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar -O gradle/wrapper/gradle-wrapper.jar
-          
-          # Create gradlew script using printf (No indentation issues)
-          printf '#!/bin/sh\nexec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"\n' > gradlew
-          chmod +x gradlew
-          
-          # Build APK
-          ./gradlew assembleDebug --no-daemon --stacktrace
+        run: cd miya-app && mkdir -p gradle/wrapper && echo "distributionBase=GRADLE_USER_HOME" > gradle/wrapper/gradle-wrapper.properties && echo "distributionPath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties && echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip" >> gradle/wrapper/gradle-wrapper.properties && echo "zipStoreBase=GRADLE_USER_HOME" >> gradle/wrapper/gradle-wrapper.properties && echo "zipStorePath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties && wget -q https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar -O gradle/wrapper/gradle-wrapper.jar && printf '#!/bin/sh\nexec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"\n' > gradlew && chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Rename APK
         run: cp miya-app/app/build/outputs/apk/debug/app-debug.apk Miya-${{ github.run_number }}.apk

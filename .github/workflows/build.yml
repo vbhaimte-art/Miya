@@ -107,11 +107,39 @@ jobs:
             print(f"❌ Patch failed: {e}")
           PYEOF
 
-      # ✅ Build Command
-      - name: Build Debug APK
+            # ✅ Fixed Build Step with Manual Wrapper Creation
+      - name: Generate Gradle Wrapper & Build APK
         run: |
-          chmod +x miya-app/gradlew
-          ./gradlew -p miya-app assembleDebug --no-daemon --stacktrace
+          cd miya-app
+          
+          # Check if gradlew exists, if not create it manually
+          if [ ! -f "gradlew" ]; then
+            echo "🔧 Creating Gradle Wrapper manually..."
+            mkdir -p gradle/wrapper
+            
+            # Create gradle-wrapper.properties
+            cat > gradle/wrapper/gradle-wrapper.properties <<'PROPS'
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+PROPS
+            
+            # Download gradle-wrapper.jar directly from GitHub raw
+            wget -q https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar -O gradle/wrapper/gradle-wrapper.jar
+            
+            # Create gradlew shell script
+            cat > gradlew <<'SCRIPT'
+#!/bin/sh
+exec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"
+SCRIPT
+            chmod +x gradlew
+            echo "✅ Gradle Wrapper created successfully"
+          fi
+          
+          # Now build the APK
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Rename APK
         run: cp miya-app/app/build/outputs/apk/debug/app-debug.apk Miya-${{ github.run_number }}.apk

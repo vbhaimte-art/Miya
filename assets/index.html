@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Miya AI System v4</title>
+<style>
+body{margin:0;font-family:'Courier New',monospace;background:#000;color:#0f0;overflow:hidden}
+#main-ui{display:flex;flex-direction:column;align-items:center;height:100vh;padding:20px;box-sizing:border-box}
+.ctrl-btn{background:#111;border:1px solid #0f0;color:#0f0;padding:12px;margin:5px;width:100%;max-width:300px;cursor:pointer;border-radius:4px}
+.ctrl-btn:active{background:#0f0;color:#000}
+.log-box{width:100%;max-width:350px;height:200px;border:1px solid #333;background:#0a0a0a;color:#0f0;padding:10px;overflow-y:auto;font-size:11px;margin-top:10px;white-space:pre-wrap}
+input.in{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;width:100%;max-width:300px;box-sizing:border-box;margin:10px 0;font-family:inherit}
+</style>
+</head>
+<body>
+<div id="main-ui">
+  <h2>🤖 Miya AI v4</h2>
+  <div id="status">System Ready</div>
+  
+  <input class="in" id="cmd" placeholder="Type command..." onkeydown="if(event.key==='Enter')run()">
+  
+  <button class="ctrl-btn" onclick="getBattery()">🔋 Check Battery</button>
+  <button class="ctrl-btn" onclick="setBright(200)">💡 Max Brightness</button>
+  <button class="ctrl-btn" onclick="openWhatsApp()">💬 Open WhatsApp</button>
+  <button class="ctrl-btn" onclick="getInfo()">📱 Device Info</button>
+  
+  <div id="log" class="log-box">Waiting for commands...</div>
+</div>
+
+<script>
+const log = msg => document.getElementById('log').innerHTML += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+
+function run() {
+  const cmd = document.getElementById('cmd').value.toLowerCase();
+  log(`CMD: ${cmd}`);
+  if(cmd.includes('battery')) getBattery();
+  else if(cmd.includes('bright')) setBright(255);
+  else if(cmd.includes('whatsapp')) openWhatsApp();
+  else log("Unknown command. Try 'battery', 'bright', or 'whatsapp'");
+  document.getElementById('cmd').value = '';
+}
+
+// === NATIVE BRIDGE CALLS ===
+function getBattery() {
+  if(typeof Android !== 'undefined') {
+    const info = JSON.parse(Android.getBatteryInfo());
+    log(`Battery: ${info.level}% | Charging: ${info.charging}`);
+  } else log("Native bridge not available (Testing in browser?)");
+}
+
+function setBright(level) {
+  if(typeof Android !== 'undefined') {
+    Android.setBrightness(level);
+    log(`Brightness set to ${level}`);
+  } else log("Brightness control requires Android App");
+}
+
+function openWhatsApp() {
+  if(typeof Android !== 'undefined') {
+    Android.openApp("com.whatsapp");
+    log("Opening WhatsApp...");
+  } else window.open("https://wa.me", "_blank");
+}
+
+function getInfo() {
+  if(typeof Android !== 'undefined') {
+    const d = JSON.parse(Android.getDeviceInfo());
+    log(`Model: ${d.model} | SDK: ${d.sdk}`);
+  } else log("Device info unavailable");
+}
+</script>
+</body>
+</html>

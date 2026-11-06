@@ -6,13 +6,13 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/build.yml'
-      - 'miya-setup.txt'
-      - 'miya-voice.txt'
+            - 'scripts/miya-setup.txt'
+      - 'scripts/miya-voice.txt'
+      - 'security/SecurityModule.java'
+      - 'assets/index.html'
       - 'model.vrm'
       - 'thron.vrm'
       - 'yor.vrm'
-      - 'index.html'  # Added HTML trigger
-      - 'SecurityModule.java' # Added Security trigger
 
 permissions:
   contents: write

@@ -4,15 +4,13 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-        paths:
+    paths:
       - '.github/workflows/build.yml'
       - 'scripts/miya-setup.txt'
       - 'scripts/miya-voice.txt'
       - 'security/SecurityModule.java'
       - 'assets/index.html'
-      - 'model.vrm'
-      - 'thron.vrm'
-      - 'yor.vrm'
+      - '*.vrm'
 
 permissions:
   contents: write
@@ -23,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ✅ Fix 1: Correct Java & Gradle Setup
+      # ✅ Java & Gradle Setup
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -33,10 +31,10 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      # ✅ Fix 2: Robust SDK Installation
+      # ✅ Android SDK Install
       - name: Install Android SDK
         run: |
-          sudo apt-get update && sudo apt-get install -y unzip
+          sudo apt-get update && sudo apt-get install -y unzip wget
           ANDROID_SDK_ROOT=$HOME/android-sdk
           mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
           cd $ANDROID_SDK_ROOT/cmdline-tools
@@ -45,24 +43,24 @@ jobs:
           export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools
           
           yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" "extras;android;m2repository" > /dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null || true
           
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
 
-        # ✅ Fix 3: Project Generation & File Placement
-        - name: Make setup script executable
+      # ✅ Project Generation
+      - name: Make setup executable
         run: chmod +x scripts/miya-setup.txt
-
+        
       - name: Create project structure
         run: bash scripts/miya-setup.txt
 
+      # ✅ File Injection Steps
       - name: Install Voice Service
         run: |
-        mkdir -p miya-app/app/src/main/java/com/miya/app
+          mkdir -p miya-app/app/src/main/java/com/miya/app
           cp scripts/miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
 
-      # ✅ Fix 4: Add SecurityModule
       - name: Inject Security Module
         if: ${{ github.event_name == 'push' }}
         run: |
@@ -70,17 +68,15 @@ jobs:
             cp security/SecurityModule.java miya-app/app/src/main/java/com/miya/app/SecurityModule.java
             echo "✅ SecurityModule injected"
           else
-            echo "⚠️ SecurityModule.java not found"
+            echo "⚠️ SecurityModule.java not found, skipping..."
           fi
 
-      # ✅ Fix 5: Safe Token Injection (Handles special chars)
       - name: Insert API Token
         env:
           MIYA_TOKEN: ${{ secrets.MIYA_TOKEN }}
         run: |
           FILE="miya-app/app/src/main/java/com/miya/app/MiyaService.java"
           if grep -q "APP_KEY" "$FILE"; then
-            # Using python for safe replacement instead of sed
             python3 -c "
             import re
             with open('$FILE', 'r') as f: content = f.read()
@@ -90,10 +86,10 @@ jobs:
             "
             echo "✅ Token injected safely"
           else
-            echo "⚠️ APP_KEY placeholder not found in MiyaService.java"
+            echo "⚠️ APP_KEY placeholder not found"
           fi
 
-      - name: Patch Manifest for Foreground Service
+      - name: Patch Manifest
         run: |
           python3 - <<'PYEOF'
           p = 'miya-app/app/src/main/AndroidManifest.xml'
@@ -106,12 +102,12 @@ jobs:
                   t = t.replace('android.permission.FOREGROUND_SERVICE"/>', 
                                 'android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>')
               open(p, 'w', encoding='utf-8').write(t)
-              print("✅ Manifest patched successfully")
+              print("✅ Manifest patched")
           except Exception as e:
-              print(f"❌ Manifest patch failed: {e}")
+            print(f"❌ Patch failed: {e}")
           PYEOF
 
-      # ✅ Fix 6: Correct Build Command
+      # ✅ Build Command
       - name: Build Debug APK
         run: |
           chmod +x miya-app/gradlew

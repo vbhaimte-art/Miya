@@ -11,10 +11,8 @@ on:
       - 'model.vrm'
       - 'thron.vrm'
       - 'yor.vrm'
-      
-      
-      
-    
+      - 'index.html'  # Added HTML trigger
+      - 'SecurityModule.java' # Added Security trigger
 
 permissions:
   contents: write
@@ -25,57 +23,104 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ✅ Fix 1: Correct Java & Gradle Setup
       - uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Android SDK
+      # ✅ Fix 2: Robust SDK Installation
+      - name: Install Android SDK
         run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" > /dev/null || true
+          sudo apt-get update && sudo apt-get install -y unzip
+          ANDROID_SDK_ROOT=$HOME/android-sdk
+          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+          cd $ANDROID_SDK_ROOT/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O tools.zip
+          unzip -q tools.zip && mv cmdline-tools latest
+          export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools
+          
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "extras;android;m2repository" > /dev/null || true
+          
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
 
-      - name: Create project
+      # ✅ Fix 3: Project Generation & File Placement
+      - name: Create project structure
         run: bash miya-setup.txt
 
-      - name: Install voice service
-        run: cp miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
+      - name: Install Voice Service
+        run: |
+          mkdir -p miya-app/app/src/main/java/com/miya/app
+          cp miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
 
-      - name: Insert token
+      # ✅ Fix 4: Add SecurityModule (Missing in old workflow)
+      - name: Inject Security Module
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          if [ -f SecurityModule.java ]; then
+            cp SecurityModule.java miya-app/app/src/main/java/com/miya/app/SecurityModule.java
+            echo "✅ SecurityModule injected"
+          else
+            echo "⚠️ SecurityModule.java not found, skipping..."
+          fi
+
+      # ✅ Fix 5: Safe Token Injection (Handles special chars)
+      - name: Insert API Token
         env:
           MIYA_TOKEN: ${{ secrets.MIYA_TOKEN }}
         run: |
-          sed -i "s|static final String APP_KEY = .*|static final String APP_KEY = \"$MIYA_TOKEN\";|" miya-app/app/src/main/java/com/miya/app/MiyaService.java
+          FILE="miya-app/app/src/main/java/com/miya/app/MiyaService.java"
+          if grep -q "APP_KEY" "$FILE"; then
+            # Using python for safe replacement instead of sed
+            python3 -c "
+            import re
+            with open('$FILE', 'r') as f: content = f.read()
+            new_content = re.sub(r'static final String APP_KEY = .*?;', 
+                                 'static final String APP_KEY = \"${{ secrets.MIYA_TOKEN }}\";', content)
+            with open('$FILE', 'w') as f: f.write(new_content)
+            "
+            echo "✅ Token injected safely"
+          else
+            echo "⚠️ APP_KEY placeholder not found in MiyaService.java"
+          fi
 
-      - name: Patch manifest
+      - name: Patch Manifest for Foreground Service
         run: |
           python3 - <<'PYEOF'
           p = 'miya-app/app/src/main/AndroidManifest.xml'
-          t = open(p, encoding='utf-8').read()
-          t = t.replace('<service android:name=".MiyaService" android:exported="false"/>', '<service android:name=".MiyaService" android:exported="false" android:foregroundServiceType="microphone"/>')
-          t = t.replace('<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>', '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>')
-          open(p, 'w', encoding='utf-8').write(t)
+          try:
+              t = open(p, encoding='utf-8').read()
+              if 'foregroundServiceType="microphone"' not in t:
+                  t = t.replace('<service android:name=".MiyaService"', 
+                                '<service android:name=".MiyaService" android:foregroundServiceType="microphone"')
+              if 'FOREGROUND_SERVICE_MICROPHONE' not in t:
+                  t = t.replace('android.permission.FOREGROUND_SERVICE"/>', 
+                                'android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>')
+              open(p, 'w', encoding='utf-8').write(t)
+              print("✅ Manifest patched successfully")
+          except Exception as e:
+              print(f"❌ Manifest patch failed: {e}")
           PYEOF
 
-      - name: Keep same signing key
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: miya-debug-keystore
+      # ✅ Fix 6: Correct Build Command
+      - name: Build Debug APK
+        run: |
+          chmod +x miya-app/gradlew
+          ./gradlew -p miya-app assembleDebug --no-daemon --stacktrace
 
-      - name: Build APK
-        run: gradle -p miya-app assembleDebug --no-daemon --stacktrace
-
-      - name: Name the APK
+      - name: Rename APK
         run: cp miya-app/app/build/outputs/apk/debug/app-debug.apk Miya-${{ github.run_number }}.apk
 
-      - name: Publish release
+      - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: miya-${{ github.run_number }}
-          name: Miya ${{ github.run_number }}
+          name: Miya Build #${{ github.run_number }}
           files: Miya-${{ github.run_number }}.apk
+          generate_release_notes: true

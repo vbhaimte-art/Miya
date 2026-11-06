@@ -107,15 +107,15 @@ jobs:
         run: |
           cd miya-app
           
-          # Ensure wrapper properties exist
+          # Create wrapper directory
           mkdir -p gradle/wrapper
-          cat > gradle/wrapper/gradle-wrapper.properties <<'PROPS'
-distributionBase=GRADLE_USER_HOME
-distributionPath=wrapper/dists
-distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip
-zipStoreBase=GRADLE_USER_HOME
-zipStorePath=wrapper/dists
-PROPS
+          
+          # Write properties using echo to avoid indentation issues
+          echo "distributionBase=GRADLE_USER_HOME" > gradle/wrapper/gradle-wrapper.properties
+          echo "distributionPath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
+          echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip" >> gradle/wrapper/gradle-wrapper.properties
+          echo "zipStoreBase=GRADLE_USER_HOME" >> gradle/wrapper/gradle-wrapper.properties
+          echo "zipStorePath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
 
           # Generate proper wrapper using system gradle
           gradle wrapper --gradle-version 8.9

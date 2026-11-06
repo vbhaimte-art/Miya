@@ -50,24 +50,24 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
 
-      # ✅ Fix 3: Project Generation & File Placement
+            # ✅ Fix 3: Project Generation & File Placement
       - name: Create project structure
-        run: bash miya-setup.txt
+        run: bash scripts/miya-setup.txt
 
       - name: Install Voice Service
         run: |
           mkdir -p miya-app/app/src/main/java/com/miya/app
-          cp miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
+          cp scripts/miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
 
-      # ✅ Fix 4: Add SecurityModule (Missing in old workflow)
+      # ✅ Fix 4: Add SecurityModule
       - name: Inject Security Module
         if: ${{ github.event_name == 'push' }}
         run: |
-          if [ -f SecurityModule.java ]; then
-            cp SecurityModule.java miya-app/app/src/main/java/com/miya/app/SecurityModule.java
+          if [ -f security/SecurityModule.java ]; then
+            cp security/SecurityModule.java miya-app/app/src/main/java/com/miya/app/SecurityModule.java
             echo "✅ SecurityModule injected"
           else
-            echo "⚠️ SecurityModule.java not found, skipping..."
+            echo "⚠️ SecurityModule.java not found"
           fi
 
       # ✅ Fix 5: Safe Token Injection (Handles special chars)

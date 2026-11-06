@@ -103,7 +103,7 @@ jobs:
             print(f"❌ Patch failed: {e}")
           PYEOF
 
-      - name: Build Debug APK
+            - name: Build Debug APK
         run: |
           cd miya-app
           
@@ -120,11 +120,8 @@ jobs:
           # Download gradle-wrapper.jar directly from official source
           wget -q https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar -O gradle/wrapper/gradle-wrapper.jar
           
-          # Create gradlew script manually
-          cat > gradlew <<'SCRIPT'
-#!/bin/sh
-exec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"
-SCRIPT
+          # Create gradlew script using printf (No indentation issues)
+          printf '#!/bin/sh\nexec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"\n' > gradlew
           chmod +x gradlew
           
           # Build APK

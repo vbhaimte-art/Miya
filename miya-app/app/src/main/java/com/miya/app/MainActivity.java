@@ -1,282 +1,401 @@
 package com.miya.app;
 
 import android.Manifest;
-import android.app.Activity;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.provider.Settings;
-import android.security.keystore.KeyGenParameterSpec;
-import android.security.keystore.KeyProperties;
-import android.util.Base64;
+import android.util.Log;
+import android.view.WindowManager;
+import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
+import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
+import androidx.annotation.NonNull;
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
 import androidx.core.app.ActivityCompat;
-import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
+import androidx.fragment.app.FragmentActivity;
+import androidx.webkit.WebViewAssetLoader;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.SecureRandom;
+import org.json.JSONObject;
+
+import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import javax.crypto.SecretKeyFactory;
-import javax.crypto.spec.PBEKeySpec;
+import java.util.regex.Pattern;
 
-public class MainActivity extends Activity {
+public class MainActivity extends FragmentActivity {
+
+    private static final String TAG = "MiyaMain";
+    private static final String HOST = "appassets.androidplatform.net";
+    private static final String START_URL = "https://" + HOST + "/assets/index.html";
+    private static final int REQ_PERMS = 100;
+    private static final long SESSION_TIMEOUT_MS = 10 * 60 * 1000L;
+    private static final Pattern PKG_PATTERN = Pattern.compile("^[a-zA-Z0-9_.]{1,200}$");
+    private static final int AUTHENTICATORS =
+            BiometricManager.Authenticators.BIOMETRIC_WEAK
+                    | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+
     private WebView webView;
-    private static final int PERMISSION_REQUEST_CODE = 100;
-    
-    // Security State
-    private boolean isUnlocked = false;
-    private long unlockTime = 0;
-    private static final long SESSION_TIMEOUT = 600000; // 10 minutes
-    private int failedAttempts = 0;
-    private long lockoutUntil = 0;
-    private static final int MAX_ATTEMPTS = 5;
-    private static final long LOCKOUT_DURATION = 30000; // 30 seconds
-    
-    // Secure Auth (Set this during first setup via encrypted storage)
-    private static final String AUTH_SALT = "miya_secure_salt_v1"; 
-    // In production, fetch hashed password from EncryptedSharedPreferences
-    private String getStoredHash() {
-        // TODO: Replace with actual EncryptedSharedPreferences read
-        // For now, using a placeholder hash of "VERGY" + salt
-        return hashPassword("VERGY", AUTH_SALT); 
-    }
+    private WebViewAssetLoader assetLoader;
+    private boolean started = false;
 
+    // Session state (elapsedRealtime: user phone ki clock badal ke bypass nahi kar sakta)
+    private volatile boolean unlocked = false;
+    private volatile long unlockedAt = 0;
+
+    // ------------------------------------------------------------------
+    // LIFECYCLE
+    // ------------------------------------------------------------------
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
-        // Safe Permission Request
-        requestPermissionsSafely();
 
-        // Setup Overlay Permission (Non-blocking)
-        if (!Settings.canDrawOverlays(this)) {
-            try {
-                Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:" + getPackageName()));
-                startActivityForResult(intent, 200);
-            } catch (Exception e) { /* Ignore */ }
-        }
+        // Screenshots / recent-apps preview band
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE);
 
-        // Setup Secure WebView
-        webView = new WebView(this);
-        setContentView(webView);
-        
-        WebSettings ws = webView.getSettings();
-        ws.setJavaScriptEnabled(true);
-        ws.setDomStorageEnabled(true);
-        ws.setAllowFileAccess(false); // SECURITY FIX
-        ws.setAllowContentAccess(false);
-        ws.setMediaPlaybackRequiresUserGesture(false);
-        ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        
-        // Add JS Bridge
-        webView.addJavascriptInterface(new MiyaBridge(), "Android");
-        
-        // Block Remote URLs - Only allow local assets
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                String url = request.getUrl().toString();
-                if (!url.startsWith("file:///android_asset/")) {
-                    Toast.makeText(MainActivity.this, "⚠️ External URLs Blocked", Toast.LENGTH_SHORT).show();
-                    return true; // Block it
-                }
-                return false;
-            }
-            
-            @Override
-            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
-                if (failingUrl.contains("index.html")) {
-                    view.loadData("<h1>Error: index.html missing</h1>", "text/html", "UTF-8");
-                }
+        setupWebView(); // load NAHI hota; pehle security checks
+
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() {
+                if (webView.canGoBack()) webView.goBack(); else finish();
             }
         });
-        
-        // Handle Web Permissions (Mic/Camera for WebView)
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onPermissionRequest(android.webkit.PermissionRequest request) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    request.grant(request.getResources());
-                }
+
+        // Security gate: local checks -> server (Play Integrity) -> tab UI load
+        SecurityModule.runChecksAsync(this, threat -> {
+            if (threat != SecurityModule.Threat.NONE) {
+                SecurityModule.enforce(this, threat);
+            } else {
+                verifyServerThenStart();
             }
         });
-        
-        // Load Local UI
-        webView.loadUrl("file:///android_asset/index.html");
-        
-        // Start Foreground Service (Android 8+ Fix)
-        startMiyaService();
     }
 
-    private void requestPermissionsSafely() {
-        List<String> perms = new ArrayList<>();
-        
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
-            perms.add(Manifest.permission.RECORD_AUDIO);
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
-            perms.add(Manifest.permission.CAMERA);
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-            perms.add(Manifest.permission.ACCESS_FINE_LOCATION);
-        if (Build.VERSION.SDK_INT >= 33 && 
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-            perms.add(Manifest.permission.POST_NOTIFICATIONS);
-            
-        if (!perms.isEmpty()) {
-            ActivityCompat.requestPermissions(this, perms.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-        }
-    }
-
-    private void startMiyaService() {
-        Intent serviceIntent = new Intent(this, MiyaService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent);
-        } else {
-            startService(serviceIntent);
-        }
-    }
-
-    // === SECURE JAVASCRIPT BRIDGE ===
-    public class MiyaBridge {
-        
-        @JavascriptInterface
-        public void authenticate(String password) {
-            // Brute Force Check
-            if (System.currentTimeMillis() < lockoutUntil) {
-                showToast("⏳ Locked. Try again in " + ((lockoutUntil - System.currentTimeMillis())/1000) + "s");
-                return;
-            }
-
-            String inputHash = hashPassword(password, AUTH_SALT);
-            String storedHash = getStoredHash();
-            
-            if (inputHash.equals(storedHash)) {
-                isUnlocked = true;
-                unlockTime = System.currentTimeMillis();
-                failedAttempts = 0;
-                showToast("🔓 Unrestricted Mode Active");
-            } else {
-                failedAttempts++;
-                if (failedAttempts >= MAX_ATTEMPTS) {
-                    lockoutUntil = System.currentTimeMillis() + LOCKOUT_DURATION;
-                    failedAttempts = 0;
-                    showToast("🚫 Too many attempts. Locked for 30s.");
-                } else {
-                    showToast("⚠️ Access Denied (" + failedAttempts + "/" + MAX_ATTEMPTS + ")");
-                }
-            }
-        }
-
-        @JavascriptInterface
-        public boolean isSessionActive() {
-            if (!isUnlocked) return false;
-            if ((System.currentTimeMillis() - unlockTime) > SESSION_TIMEOUT) {
-                isUnlocked = false;
-                return false;
-            }
-            return true;
-        }
-
-        @JavascriptInterface
-        public void setBrightness(int level) {
-            if (!isSessionActive()) { showToast("🔒 Session Expired"); return; }
-            
-            // Check WRITE_SETTINGS permission safely
-            if (Settings.System.canWrite(MainActivity.this)) {
-                try {
-                    Settings.System.putInt(getContentResolver(), 
-                        Settings.System.SCREEN_BRIGHTNESS, Math.max(0, Math.min(255, level)));
-                } catch (Exception e) { 
-                    showToast("❌ Brightness failed: " + e.getMessage()); 
-                }
-            } else {
-                showToast("⚠️ Grant 'Write Settings' permission first");
-                startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, 
-                    Uri.parse("package:" + getPackageName())));
-            }
-        }
-
-        @JavascriptInterface
-        public String getBatteryInfo() {
-            if (!isSessionActive()) return "{\"error\":\"Session expired\"}";
-            
-            try {
-                android.os.BatteryManager bm = (android.os.BatteryManager) getSystemService(BATTERY_SERVICE);
-                int level = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
-                boolean charging = bm.isCharging();
-                return "{\"level\":" + level + ",\"charging\":" + charging + "}";
-            } catch (Exception e) {
-                return "{\"error\":\"" + e.getMessage().replace("\"", "'") + "\"}";
-            }
-        }
-
-        @JavascriptInterface
-        public void openApp(String packageName) {
-            if (!isSessionActive()) { showToast("🔒 Session Expired"); return; }
-            
-            try {
-                Intent i = getPackageManager().getLaunchIntentForPackage(packageName);
-                if (i != null) startActivity(i);
-                else showToast("❌ App not found: " + packageName);
-            } catch (Exception e) { 
-                showToast("❌ Open failed: " + e.getMessage().replace("\"", "'")); 
-            }
-        }
-        
-        @JavascriptInterface
-        public String getDeviceInfo() {
-            if (!isSessionActive()) return "{\"error\":\"Session expired\"}";
-            
-            // Escape quotes to prevent JSON injection
-            String model = Build.MODEL.replace("\"", "\\\"").replace("'", "\\'");
-            return "{\"model\":\"" + model + "\",\"sdk\":" + Build.VERSION.SDK_INT + "}";
-        }
-
-        private void showToast(String msg) {
-            runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
-        }
-    }
-
-    // === SECURITY UTILS ===
-    private String hashPassword(String password, String salt) {
-        try {
-            PBEKeySpec spec = new PBEKeySpec(password.toCharArray(), salt.getBytes(StandardCharsets.UTF_8), 65536, 256);
-            SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
-            byte[] hash = factory.generateSecret(spec).getEncoded();
-            return Base64.encodeToString(hash, Base64.NO_WRAP);
-        } catch (Exception e) {
-            return "";
-        }
+    @Override
+    protected void onStop() {
+        super.onStop();
+        unlocked = false; // app background mein gayi -> dobara auth
     }
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
         if (webView != null) {
+            webView.removeJavascriptInterface("Android");
+            webView.loadUrl("about:blank");
             webView.destroy();
+            webView = null;
+        }
+        super.onDestroy();
+    }
+
+    // ------------------------------------------------------------------
+    // SECURITY GATE
+    // ------------------------------------------------------------------
+    private void verifyServerThenStart() {
+        String url = BuildConfig.INTEGRITY_BASE_URL;
+        if (BuildConfig.DEBUG || url == null || url.isEmpty()) {
+            startApp(); // debug build ya server configure nahi
+            return;
+        }
+        SecurityModule.verifyWithServer(this, url, BuildConfig.CLOUD_PROJECT_NUMBER,
+                (ok, reason) -> {
+                    if (ok) startApp();
+                    else SecurityModule.showBlockedAndExit(this);
+                });
+    }
+
+    private void startApp() {
+        if (started || isFinishing()) return;
+        started = true;
+
+        requestRuntimePermissions();
+
+        try {
+            getAssets().open("index.html").close();
+            webView.loadUrl(START_URL);
+        } catch (Exception e) {
+            Toast.makeText(this, "Error: assets/index.html missing!", Toast.LENGTH_LONG).show();
+        }
+
+        // Service sirf security pass hone ke baad. Background mein zinda rakhna ho to
+        // MiyaService ko foreground service banana padega (service file bhejo).
+        try {
+            startService(new Intent(this, MiyaService.class));
+        } catch (Exception e) {
+            Log.w(TAG, "Service start failed", e);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // WEBVIEW (sirf apni local assets; remote content block)
+    // ------------------------------------------------------------------
+    private void setupWebView() {
+        webView = new WebView(this);
+        setContentView(webView);
+
+        assetLoader = new WebViewAssetLoader.Builder()
+                .setDomain(HOST)
+                .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+                .build();
+
+        WebSettings ws = webView.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        ws.setAllowFileAccess(false);
+        ws.setAllowContentAccess(false);
+        ws.setJavaScriptCanOpenWindowsAutomatically(false);
+        ws.setMediaPlaybackRequiresUserGesture(false);
+        ws.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+
+        webView.addJavascriptInterface(new MiyaBridge(), "Android");
+
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                Uri u = r.getUrl();
+                if (isOwnOrigin(u)) {
+                    WebResourceResponse resp = assetLoader.shouldInterceptRequest(u);
+                    if (resp != null) return resp;
+                }
+                return blocked();
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                return !isOwnOrigin(r.getUrl()); // bahar ke links block
+            }
+        });
+
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest req) {
+                runOnUiThread(() -> {
+                    if (!isOwnOrigin(req.getOrigin())) { req.deny(); return; }
+                    List<String> ok = new ArrayList<>();
+                    for (String r : req.getResources()) {
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)
+                                && has(Manifest.permission.RECORD_AUDIO)) ok.add(r);
+                        else if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)
+                                && has(Manifest.permission.CAMERA)) ok.add(r);
+                    }
+                    if (ok.isEmpty()) req.deny(); else req.grant(ok.toArray(new String[0]));
+                });
+            }
+
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin,
+                                                           GeolocationPermissions.Callback cb) {
+                boolean allow = origin != null && isOwnOrigin(Uri.parse(origin))
+                        && has(Manifest.permission.ACCESS_FINE_LOCATION);
+                cb.invoke(origin, allow, false);
+            }
+        });
+    }
+
+    private static boolean isOwnOrigin(Uri u) {
+        return u != null && "https".equals(u.getScheme()) && HOST.equals(u.getHost());
+    }
+
+    private static WebResourceResponse blocked() {
+        return new WebResourceResponse("text/plain", "utf-8", 403, "Blocked",
+                Collections.<String, String>emptyMap(), new ByteArrayInputStream(new byte[0]));
+    }
+
+    // ------------------------------------------------------------------
+    // PERMISSIONS (ek baar, sirf missing wali, API level ke hisaab se)
+    // ------------------------------------------------------------------
+    private boolean has(String perm) {
+        return ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void requestRuntimePermissions() {
+        List<String> need = new ArrayList<>();
+        String[] base = {
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.CAMERA,
+                Manifest.permission.ACCESS_FINE_LOCATION
+        };
+        for (String p : base) if (!has(p)) need.add(p);
+        if (Build.VERSION.SDK_INT >= 33 && !has(Manifest.permission.POST_NOTIFICATIONS)) {
+            need.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+        if (!need.isEmpty()) {
+            ActivityCompat.requestPermissions(this, need.toArray(new String[0]), REQ_PERMS);
         }
     }
 
     @Override
-    public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
+    public void onRequestPermissionsResult(int code, @NonNull String[] perms,
+                                           @NonNull int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        if (code != REQ_PERMS) return;
+        for (int r : results) {
+            if (r != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(this, "Kuch permissions deny hui, kuch features kaam nahi karenge",
+                        Toast.LENGTH_LONG).show();
+                break;
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // AUTH (hardcoded password ki jagah fingerprint / PIN / pattern)
+    // ------------------------------------------------------------------
+    private void promptAuth() {
+        BiometricManager bm = BiometricManager.from(this);
+        if (bm.canAuthenticate(AUTHENTICATORS) != BiometricManager.BIOMETRIC_SUCCESS) {
+            toast("Phone mein screen lock (PIN/fingerprint) set karo");
+            notifyJs(false);
+            return;
+        }
+
+        BiometricPrompt prompt = new BiometricPrompt(this,
+                ContextCompat.getMainExecutor(this),
+                new BiometricPrompt.AuthenticationCallback() {
+                    @Override
+                    public void onAuthenticationSucceeded(
+                            @NonNull BiometricPrompt.AuthenticationResult result) {
+                        unlocked = true;
+                        unlockedAt = SystemClock.elapsedRealtime();
+                        toast("🔓 Unlocked");
+                        notifyJs(true);
+                    }
+
+                    @Override
+                    public void onAuthenticationError(int code, @NonNull CharSequence msg) {
+                        notifyJs(false);
+                    }
+                });
+
+        prompt.authenticate(new BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Miya unlock")
+                .setSubtitle("Apni identity confirm karo")
+                .setAllowedAuthenticators(AUTHENTICATORS)
+                .build());
+    }
+
+    private void notifyJs(boolean ok) {
+        if (webView == null) return;
+        webView.evaluateJavascript(
+                "window.onMiyaAuth && window.onMiyaAuth(" + ok + ")", null);
+    }
+
+    private boolean sessionActive() {
+        if (!unlocked) return false;
+        if (SystemClock.elapsedRealtime() - unlockedAt > SESSION_TIMEOUT_MS) {
+            unlocked = false;
+            return false;
+        }
+        return true;
+    }
+
+    private void toast(final String msg) {
+        runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+    }
+
+    // ------------------------------------------------------------------
+    // JAVASCRIPT BRIDGE (sensitive methods session-gated)
+    // JS side: Android.authenticate() ; window.onMiyaAuth = ok => {...}
+    // ------------------------------------------------------------------
+    public class MiyaBridge {
+
+        @JavascriptInterface
+        public void authenticate() {
+            runOnUiThread(MainActivity.this::promptAuth);
+        }
+
+        @JavascriptInterface
+        public boolean isSessionActive() {
+            return sessionActive();
+        }
+
+        @JavascriptInterface
+        public void lock() {
+            unlocked = false;
+        }
+
+        /** Sirf is app ki screen ki brightness (WRITE_SETTINGS ki zaroorat nahi). */
+        @JavascriptInterface
+        public void setBrightness(int level) {
+            if (!sessionActive()) { toast("⚠️ Pehle unlock karo"); return; }
+            final float b = Math.max(0.02f, Math.min(255, Math.max(0, level)) / 255f);
+            runOnUiThread(() -> {
+                WindowManager.LayoutParams lp = getWindow().getAttributes();
+                lp.screenBrightness = b;
+                getWindow().setAttributes(lp);
+            });
+        }
+
+        @JavascriptInterface
+        public void openApp(final String packageName) {
+            if (!sessionActive()) { toast("⚠️ Pehle unlock karo"); return; }
+            if (packageName == null || !PKG_PATTERN.matcher(packageName).matches()) return;
+            runOnUiThread(() -> {
+                try {
+                    Intent i = getPackageManager().getLaunchIntentForPackage(packageName);
+                    if (i != null) startActivity(i);
+                    else toast("App nahi mili");
+                } catch (Exception e) {
+                    Log.w(TAG, "openApp failed", e);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void requestOverlayPermission() {
+            if (!sessionActive()) { toast("⚠️ Pehle unlock karo"); return; }
+            runOnUiThread(() -> {
+                try {
+                    if (!Settings.canDrawOverlays(MainActivity.this)) {
+                        startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:" + getPackageName())));
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "overlay intent failed", e);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public String getBatteryInfo() {
+            try {
+                BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
+                return new JSONObject()
+                        .put("level", bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY))
+                        .put("charging", bm.isCharging())
+                        .toString();
+            } catch (Exception e) {
+                return "{}";
+            }
+        }
+
+        @JavascriptInterface
+        public String getDeviceInfo() {
+            try {
+                return new JSONObject()
+                        .put("model", Build.MODEL)
+                        .put("sdk", Build.VERSION.SDK_INT)
+                        .toString();
+            } catch (Exception e) {
+                return "{}";
+            }
         }
     }
 }

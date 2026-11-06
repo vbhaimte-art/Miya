@@ -107,7 +107,7 @@ jobs:
             print(f"❌ Patch failed: {e}")
           PYEOF
 
-            # ✅ Fixed Build Step with Manual Wrapper Creation
+                 # ✅ Fixed Build Step with Manual Wrapper Creation
       - name: Generate Gradle Wrapper & Build APK
         run: |
           cd miya-app
@@ -150,4 +150,5 @@ SCRIPT
           tag_name: miya-${{ github.run_number }}
           name: Miya Build #${{ github.run_number }}
           files: Miya-${{ github.run_number }}.apk
-          generate_release_notes: true
+          generate_release_notes: true 
+          

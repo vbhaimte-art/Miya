@@ -1,29 +1,39 @@
 #!/bin/bash
 set -e
 
+echo "🚀 Initializing Miya AI Native Android Project..."
+
+# Clean previous build
 rm -rf miya-app
 mkdir -p miya-app/app/src/main/java/com/miya/app
 mkdir -p miya-app/app/src/main/res/values
+mkdir -p miya-app/app/src/main/assets  # Folder for your HTML/JS files
 
 # ---------------- settings.gradle ----------------
 cat > miya-app/settings.gradle <<'EOF'
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories { google(); mavenCentral() }
+}
+rootProject.name = "Miya AI"
 include ':app'
 EOF
 
 # ---------------- root build.gradle ----------------
 cat > miya-app/build.gradle <<'EOF'
-buildscript {
-    repositories { google(); mavenCentral() }
-    dependencies { classpath 'com.android.tools.build:gradle:8.5.0' }
-}
-allprojects {
-    repositories { google(); mavenCentral() }
+plugins {
+    id 'com.android.application' version '8.5.0' apply false
 }
 EOF
 
 # ---------------- app/build.gradle ----------------
 cat > miya-app/app/build.gradle <<'EOF'
-apply plugin: 'com.android.application'
+plugins {
+    id 'com.android.application'
+}
 
 android {
     namespace 'com.miya.app'
@@ -34,11 +44,18 @@ android {
         minSdk 26
         targetSdk 34
         versionCode 1
-        versionName "1.0"
+        versionName "4.0"
+        
+        // Enable JS Interface
+        renderscriptTargetApi 26
+        renderscriptSupportModeEnabled true
     }
 
     buildTypes {
-        debug { }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
     }
 
     compileOptions {
@@ -46,70 +63,246 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.webkit:webkit:1.9.0' // Better WebView support
+}
 EOF
 
-# ---------------- AndroidManifest.xml ----------------
+# ---------------- AndroidManifest.xml (UPGRADED PERMISSIONS) ----------------
 cat > miya-app/app/src/main/AndroidManifest.xml <<'EOF'
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Core Permissions -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    
+    <!-- Phone Control Permissions -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.BLUETOOTH"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.FLASHLIGHT"/>
 
     <application
         android:allowBackup="true"
         android:icon="@android:drawable/sym_def_app_icon"
-        android:label="Miya"
-        android:theme="@android:style/Theme.DeviceDefault">
+        android:label="Miya AI v4"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
+        android:usesCleartextTraffic="true">
 
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".MainActivity" 
+                  android:exported="true"
+                  android:configChanges="orientation|screenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
 
-        <service android:name=".MiyaService" android:exported="false"/>
+        <service android:name=".MiyaService" 
+                 android:exported="false"
+                 android:foregroundServiceType="microphone"/>
+                 
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
 EOF
 
-# ---------------- MainActivity.java ----------------
-cat > miya-app/app/src/main/java/com/miya/app/MainActivity.java <<'EOF'
+# ---------------- MainActivity.java (WEBVIEW + JS BRIDGE) ----------------
+cat > miya-app/app/src/main/java/com/miya/app/MainActivity.java <<'JAVA_EOF'
 package com.miya.app;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.view.View;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Toast;
+
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 public class MainActivity extends Activity {
+    private WebView webView;
+    private static final int PERMISSION_REQUEST_CODE = 100;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        String[] perms;
-        if (Build.VERSION.SDK_INT >= 33) {
-            perms = new String[]{android.Manifest.permission.RECORD_AUDIO, android.Manifest.permission.POST_NOTIFICATIONS};
-        } else {
-            perms = new String[]{android.Manifest.permission.RECORD_AUDIO};
+        
+        // Request Critical Permissions
+        String[] perms = {
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.CAMERA,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS
+        };
+        
+        for (String p : perms) {
+            if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, perms, PERMISSION_REQUEST_CODE);
+            }
         }
-        requestPermissions(perms, 1);
 
+        // Setup Overlay Permission for Background Service
         if (!Settings.canDrawOverlays(this)) {
-            startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName())));
-        } else {
-            startService(new Intent(this, MiyaService.class));
+            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivityForResult(intent, 200);
         }
-        finish();
+
+        // Setup WebView
+        webView = new WebView(this);
+        setContentView(webView);
+        
+        WebSettings ws = webView.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        ws.setAllowFileAccess(true);
+        ws.setAllowContentAccess(true);
+        ws.setMediaPlaybackRequiresUserGesture(false);
+        
+        // Add JS Bridge for Phone Control
+        webView.addJavascriptInterface(new MiyaBridge(), "Android");
+        
+        webView.setWebViewClient(new WebViewClient());
+        webView.setWebChromeClient(new WebChromeClient());
+        
+        // Load local index.html from assets
+        webView.loadUrl("file:///android_asset/index.html");
+        
+        // Start Background Service
+        startService(new Intent(this, MiyaService.class));
+    }
+
+    // === JAVASCRIPT BRIDGE FOR PHONE CONTROL ===
+    public class MiyaBridge {
+        @JavascriptInterface
+        public void setBrightness(int level) {
+            try {
+                Settings.System.putInt(getContentResolver(), 
+                    Settings.System.SCREEN_BRIGHTNESS, level);
+            } catch (Exception e) { e.printStackTrace(); }
+        }
+
+        @JavascriptInterface
+        public void toggleFlashlight(boolean on) {
+            // Implementation requires CameraManager (added in next step)
+            Toast.makeText(MainActivity.this, "Flashlight: " + on, Toast.LENGTH_SHORT).show();
+        }
+
+        @JavascriptInterface
+        public String getBatteryInfo() {
+            android.os.BatteryManager bm = (android.os.BatteryManager) getSystemService(BATTERY_SERVICE);
+            int level = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
+            boolean charging = bm.isCharging();
+            return "{\"level\":" + level + ",\"charging\":" + charging + "}";
+        }
+
+        @JavascriptInterface
+        public void openApp(String packageName) {
+            try {
+                Intent i = getPackageManager().getLaunchIntentForPackage(packageName);
+                if (i != null) startActivity(i);
+            } catch (Exception e) { e.printStackTrace(); }
+        }
+
+        @JavascriptInterface
+        public void speakText(String text) {
+            // Can integrate with Android TTS here
+            Toast.makeText(MainActivity.this, "Speaking: " + text, Toast.LENGTH_SHORT).show();
+        }
+        
+        @JavascriptInterface
+        public String getDeviceInfo() {
+            return "{\"model\":\"" + Build.MODEL + "\",\"sdk\":" + Build.VERSION.SDK_INT + "}";
+        }
     }
 }
-EOF
+JAVA_EOF
 
-echo "Project scaffold ready."
+# ---------------- MiyaService.java (Background Listener) ----------------
+cat > miya-app/app/src/main/java/com/miya/app/MiyaService.java <<'JAVA_EOF'
+package com.miya.app;
+
+import android.app.*;
+import android.content.Intent;
+import android.os.Build;
+import android.os.IBinder;
+import androidx.core.app.NotificationCompat;
+
+public class MiyaService extends Service {
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                "miya_channel", "Miya AI Service", NotificationManager.IMPORTANCE_LOW);
+            getSystemService(NotificationManager.class).createNotificationChannel(channel);
+            
+            Notification notification = new NotificationCompat.Builder(this, "miya_channel")
+                .setContentTitle("Miya AI Active")
+                .setContentText("Listening for commands...")
+                .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+                .build();
+                
+            startForeground(1, notification);
+        }
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) { return null; }
+    
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        // TODO: Add Wake Word Detection Logic Here
+        return START_STICKY;
+    }
+}
+JAVA_EOF
+
+# ---------------- BootReceiver.java ----------------
+cat > miya-app/app/src/main/java/com/miya/app/BootReceiver.java <<'JAVA_EOF'
+package com.miya.app;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+
+public class BootReceiver extends BroadcastReceiver {
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+            context.startService(new Intent(context, MiyaService.class));
+        }
+    }
+}
+JAVA_EOF
+
+echo "✅ Miya Native Project Scaffold Created Successfully!"
+echo "📂 Next Steps:"
+echo "1. Copy your updated 'index.html' into miya-app/app/src/main/assets/"
+echo "2. Open project in Android Studio"
+echo "3. Sync Gradle and Run"

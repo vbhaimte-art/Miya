@@ -73,13 +73,7 @@ jobs:
         run: |
           FILE="miya-app/app/src/main/java/com/miya/app/MiyaService.java"
           if grep -q "APP_KEY" "$FILE"; then
-            python3 -c "
-            import re
-            with open('$FILE', 'r') as f: content = f.read()
-            new_content = re.sub(r'static final String APP_KEY = .*?;', 
-                                 'static final String APP_KEY = \"${{ secrets.MIYA_TOKEN }}\";', content)
-            with open('$FILE', 'w') as f: f.write(new_content)
-            "
+            sed -i "s|static final String APP_KEY = .*;|static final String APP_KEY = \"$MIYA_TOKEN\";|" "$FILE"
             echo "✅ Token injected safely"
           else
             echo "⚠️ APP_KEY placeholder not found"
@@ -106,29 +100,7 @@ jobs:
       - name: Build Debug APK
         run: |
           cd miya-app
-          
-          # Create wrapper directory
-          mkdir -p gradle/wrapper
-          
-          # Write properties using echo (Safe for mobile editors)
-          echo "distributionBase=GRADLE_USER_HOME" > gradle/wrapper/gradle-wrapper.properties
-          echo "distributionPath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
-          echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip" >> gradle/wrapper/gradle-wrapper.properties
-          echo "zipStoreBase=GRADLE_USER_HOME" >> gradle/wrapper/gradle-wrapper.properties
-          echo "zipStorePath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
-
-          # Download gradle-wrapper.jar directly from official source
-          wget -q https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar -O gradle/wrapper/gradle-wrapper.jar
-          
-          # Create gradlew script manually
-          cat > gradlew <<'SCRIPT'
-#!/bin/sh
-exec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"
-SCRIPT
-          chmod +x gradlew
-          
-          # Build APK
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          gradle assembleDebug --no-daemon --stacktrace
 
       - name: Rename APK
         run: cp miya-app/app/build/outputs/apk/debug/app-debug.apk Miya-${{ github.run_number }}.apk

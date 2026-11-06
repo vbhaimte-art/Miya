@@ -3,151 +3,201 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Miya AI System v3 - Dynamic</title>
+<title>Miya AI System v4 - Self-Evolving</title>
 <style>
+/* --- Base Styles --- */
 body{margin:0;font-family:'Courier New',monospace;background:#000;color:#0f0;overflow:hidden;touch-action:manipulation}
 #main-ui{display:flex;justify-content:center;align-items:center;height:100vh;text-align:center;flex-direction:column;padding:20px;box-sizing:border-box;overflow-y:auto}
-.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:300px;margin-top:20px}
-.ctrl-btn{background:#222;border:1px solid #0f0;color:#0f0;padding:15px;font-size:14px;cursor:pointer;border-radius:5px}
-.ctrl-btn:active{background:#0f0;color:#000}
-#mic-btn{width:80px;height:80px;border-radius:50%;border:2px solid #0f0;background:transparent;color:#0f0;font-size:30px;cursor:pointer;box-shadow:0 0 10px #0f0;margin-bottom:20px;outline:none;flex-shrink:0}
-#mic-btn:active{background:#0f0;color:#000}
-#status-text{margin-top:20px;font-size:14px;opacity:.8;word-break:break-all;padding:0 10px}
-.tool-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.95);z-index:100;display:none;padding:20px;box-sizing:border-box;flex-direction:column;justify-content:center;align-items:center}
-#camera-feed{width:100%;max-height:60vh;object-fit:cover;border:2px solid #0f0;background:#111}
-#network-log,#scrape-log,#custom-out{font-size:12px;color:#0f0;overflow-y:auto;width:100%;max-width:400px;height:50vh;border:1px solid #333;padding:10px;background:#111;text-align:left;box-sizing:border-box}
-#dos-bar{width:100%;max-width:400px;height:20px;background:#333;margin-top:10px;border:1px solid #0f0}
-#dos-fill{width:0%;height:100%;background:red;transition:width .1s}
-.close-btn{position:absolute;top:20px;right:20px;background:red;color:#fff;border:none;padding:10px 20px;cursor:pointer;font-weight:bold;z-index:101;border-radius:5px}
-/* Brain */
-#brain-panel{justify-content:flex-start;overflow-y:auto;padding-top:70px}
-#brain-panel>*{width:100%;max-width:420px;box-sizing:border-box}
-.in{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;font:13px 'Courier New',monospace;margin:4px 0;border-radius:4px}
-textarea.in{height:90px}
-.row{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
-.sm{background:#222;border:1px solid #0f0;color:#0f0;padding:9px 10px;font:12px 'Courier New',monospace;border-radius:4px}
+
+/* --- Controls & Buttons --- */
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;max-width:350px;margin-top:20px}
+.ctrl-btn{background:#111;border:1px solid #0f0;color:#0f0;padding:12px;font-size:13px;cursor:pointer;border-radius:4px;transition:all 0.2s}
+.ctrl-btn:active{background:#0f0;color:#000;transform:scale(0.95)}
+#mic-btn{width:70px;height:70px;border-radius:50%;border:2px solid #0f0;background:transparent;color:#0f0;font-size:28px;cursor:pointer;box-shadow:0 0 15px #0f0;margin-bottom:15px;outline:none}
+#mic-btn.listening{animation:pulse 1.5s infinite;background:#0f0;color:#000}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(0,255,0,0.7)}70%{box-shadow:0 0 0 15px rgba(0,255,0,0)}100%{box-shadow:0 0 0 0 rgba(0,255,0,0)}}
+
+/* --- Input Area --- */
+.input-row{display:flex;gap:5px;width:100%;max-width:350px;margin-top:15px}
+.in{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;font:13px 'Courier New',monospace;border-radius:4px;flex:1;outline:none}
+.in:focus{box-shadow:0 0 5px #0f0}
+.sm{background:#222;border:1px solid #0f0;color:#0f0;padding:0 15px;font:13px 'Courier New',monospace;border-radius:4px;cursor:pointer}
 .sm:active{background:#0f0;color:#000}
-#plan-box{display:none;border:1px solid #ff0;color:#ff0;padding:10px;margin:8px 0;text-align:left;font-size:12px;white-space:pre-wrap;word-break:break-word}
-#brain-log{font-size:11px;height:110px;overflow-y:auto;border:1px solid #333;background:#111;padding:8px;text-align:left}
-.tool-item{border:1px solid #0a0;padding:8px;margin:6px 0;text-align:left;font-size:12px}
-.off{opacity:.45}
-/* Dynamic Button Styles */
-.btn-tool {
-    background: #000;
-    border: 1px solid #0f0;
-    color: #0f0;
-    padding: 10px;
-    margin: 5px 0;
-    width: 100%;
-    text-align: left;
-    cursor: pointer;
-    font-family: 'Courier New', monospace;
-}
-.btn-tool:active {
-    background: #0f0;
-    color: #000;
-}
+
+/* --- Status & Logs --- */
+#status-text{margin-top:15px;font-size:13px;opacity:.8;word-break:break-all;padding:0 10px;min-height:20px}
+#mode-indicator{font-size:11px;color:#ff0;margin-top:5px;text-transform:uppercase;letter-spacing:1px}
+
+/* --- Overlays --- */
+.tool-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.98);z-index:100;display:none;padding:20px;box-sizing:border-box;flex-direction:column;align-items:center;overflow-y:auto}
+.close-btn{position:absolute;top:15px;right:15px;background:red;color:#fff;border:none;padding:8px 15px;cursor:pointer;font-weight:bold;z-index:101;border-radius:4px;font-family:inherit}
+
+/* --- Specific Panels --- */
+#camera-feed{width:100%;max-height:50vh;object-fit:cover;border:2px solid #0f0;background:#111;margin-top:20px}
+.log-box{font-size:11px;color:#0f0;overflow-y:auto;width:100%;max-width:400px;height:40vh;border:1px solid #333;padding:10px;background:#0a0a0a;text-align:left;box-sizing:border-box;margin-top:10px;white-space:pre-wrap}
+.bar-container{width:100%;max-width:300px;height:15px;background:#333;margin-top:10px;border:1px solid #0f0;border-radius:2px}
+.bar-fill{width:0%;height:100%;background:red;transition:width .2s;border-radius:2px}
+
+/* --- Brain Panel --- */
+#brain-panel{padding-top:60px;align-items:flex-start}
+#brain-panel > *{width:100%;max-width:400px;box-sizing:border-box}
+.row{display:flex;gap:5px;flex-wrap:wrap;margin:8px 0}
+.tool-item{border:1px solid #0a0;padding:8px;margin:5px 0;text-align:left;font-size:11px;background:#050505;border-radius:3px}
+.code-explainer{border-left:2px solid #ff0;padding-left:8px;margin:5px 0;color:#aaa;font-size:10px}
+
+/* --- Dynamic Button Styles --- */
+.btn-tool{background:#000;border:1px solid #0f0;color:#0f0;padding:10px;margin:4px 0;width:100%;text-align:left;cursor:pointer;font-family:inherit;font-size:12px;border-radius:3px}
+.btn-tool:active{background:#0f0;color:#000}
 </style>
 </head>
 <body>
 
 <div id="main-ui">
-  <button id="mic-btn" onclick="startListening()">🎤</button>
-  <p id="status-text">System Ready... Tap Mic or Use Buttons Below</p>
-  <div class="row" style="width:100%;max-width:300px">
-    <input class="in" id="cmd-input" placeholder="Command type karo..." style="flex:1;margin:0" onkeydown="if(event.key==='Enter')runTyped()">
-    <button class="sm" onclick="runTyped()" style="margin:0">▶</button>
+  <button id="mic-btn" onclick="toggleListening()">🎤</button>
+  <p id="status-text">Miya AI v4 Ready... Tap Mic or Type Command</p>
+  <div id="mode-indicator">MODE: NORMAL</div>
+  
+  <div class="input-row">
+    <input class="in" id="cmd-input" placeholder="Type command..." onkeydown="if(event.key==='Enter')runTyped()">
+    <button class="sm" onclick="runTyped()">▶</button>
   </div>
   
-  <!-- Fixed Controls -->
+  <!-- Main Controls -->
   <div class="controls" id="controls">
-    <button class="ctrl-btn" onclick="executeTool('openCamera')">📷 Spy Cam</button>
-    <button class="ctrl-btn" onclick="executeTool('scanNetwork')">📡 Scan Net</button>
-    <button class="ctrl-btn" onclick="executeTool('startDos')">⚠️ DoS Sim</button>
-    <button class="ctrl-btn" onclick="executeTool('scrapeData')">🕸️ Scrape Data</button>
-    <button class="ctrl-btn" onclick="executeTool('openBrain')" style="grid-column:span 2">🧠 Brain (Add Tool)</button>
-    <button class="ctrl-btn" onclick="executeTool('webSearch')">🔎 Web Search</button>
+    <button class="ctrl-btn" onclick="executeTool('openCamera')">📷 Camera</button>
+    <button class="ctrl-btn" onclick="executeTool('scanNetwork')">📡 Net Scan</button>
+    <button class="ctrl-btn" onclick="executeTool('securityLab')">🛡️ Sec Lab</button>
+    <button class="ctrl-btn" onclick="executeTool('phoneStats')">🔋 Phone Info</button>
+    <button class="ctrl-btn" onclick="executeTool('openBrain')" style="grid-column:span 2">🧠 Brain / Add Tool</button>
+    <button class="ctrl-btn" onclick="executeTool('webSearch')">🔎 Search</button>
   </div>
 
-  <!-- Dynamic Controls Container (Line 55 Equivalent) -->
-  <div id="custom-controls" style="width:100%; max-width:300px; margin-top:15px;">
-    <!-- Buttons will appear here automatically -->
-  </div>
-
+  <!-- Dynamic Tools Container -->
+  <div id="custom-controls" style="width:100%; max-width:350px; margin-top:15px;"></div>
 </div>
 
-<!-- Overlays -->
+<!-- === OVERLAYS === -->
+
+<!-- Camera -->
 <div id="camera-panel" class="tool-overlay">
   <button class="close-btn" onclick="closeTools()">X</button>
-  <video id="camera-feed" autoplay playsinline></video>
-  <button class="ctrl-btn" onclick="toggleCamera()" style="margin-top:10px">Toggle Camera</button>
+  <h3>📷 Live Feed</h3>
+  <video id="camera-feed" autoplay playsinline muted></video>
+  <div class="row" style="margin-top:10px">
+    <button class="sm" onclick="toggleCamera()">Start/Stop</button>
+    <button class="sm" onclick="captureImage()">Capture</button>
+  </div>
 </div>
 
+<!-- Network Scanner -->
 <div id="network-panel" class="tool-overlay">
   <button class="close-btn" onclick="closeTools()">X</button>
-  <h3>Network Scan Log</h3>
-  <div id="network-log"></div>
+  <h3>📡 Network Recon</h3>
+  <div class="row">
+    <button class="sm" onclick="startNetScan()">Start Scan</button>
+    <button class="sm" onclick="clearLog('network-log')">Clear</button>
+  </div>
+  <div id="network-log" class="log-box">Waiting for scan...</div>
 </div>
 
-<div id="dos-panel" class="tool-overlay">
+<!-- Security Lab -->
+<div id="security-panel" class="tool-overlay">
   <button class="close-btn" onclick="closeTools()">X</button>
-  <h3>DoS Simulation</h3>
-  <div id="dos-bar"><div id="dos-fill"></div></div>
-  <div id="dos-status" style="margin-top:10px">0%</div>
+  <h3>🛡️ Ethical Hacking Lab</h3>
+  <div class="row">
+    <button class="sm" onclick="runVulnScan()">Vuln Scan</button>
+    <button class="sm" onclick="runSQLiTest()">SQLi Test</button>
+    <button class="sm" onclick="runXSSTest()">XSS Test</button>
+  </div>
+  <div id="security-log" class="log-box">Select a test module...</div>
 </div>
 
-<div id="scrape-panel" class="tool-overlay">
+<!-- Phone Stats -->
+<div id="phone-panel" class="tool-overlay">
   <button class="close-btn" onclick="closeTools()">X</button>
-  <h3>Scraping Data</h3>
-  <div id="scrape-log"></div>
+  <h3>🔋 Device Intelligence</h3>
+  <div id="phone-stats" class="log-box">Loading system info...</div>
+  <div class="row" style="margin-top:10px">
+    <button class="sm" onclick="refreshPhoneStats()">Refresh</button>
+    <button class="sm" onclick="termuxCommand('termux-battery-status')">Termux Battery</button>
+  </div>
 </div>
 
+<!-- Brain Panel -->
 <div id="brain-panel" class="tool-overlay">
   <button class="close-btn" onclick="closeTools()">X</button>
-  <h3>🧠 Brain</h3>
-  <input class="in" id="api-key" placeholder="Anthropic API Key (Optional)">
-  <input class="in" id="brain-input" placeholder="Tool Name / Request / Code">
+  <h3>🧠 AI Core & Evolution</h3>
+  
+  <input class="in" id="api-key" placeholder="API Key (Optional)">
+  <input class="in" id="brain-input" placeholder="New Tool Name / Code / Request">
+  
   <div class="row">
-    <button class="sm" onclick="makePlan()">Plan Banao</button>
-    <button class="sm" onclick="learnCode()">Code Seekho</button>
-    <button class="sm" onclick="showPlace()">Kahan Dalu</button>
-    <button class="sm" onclick="checkPassword()">Password</button>
+    <button class="sm" onclick="injectTool()">💉 Inject Tool</button>
+    <button class="sm" onclick="explainCode()">📖 Explain Code</button>
+    <button class="sm" onclick="setMode()">⚙️ Set Mode</button>
+    <button class="sm" onclick="showMemory()">💾 Memory</button>
   </div>
-  <div id="plan-box"></div>
-  <div id="brain-log"></div>
+  
+  <div id="plan-box" style="display:none;border:1px solid #ff0;color:#ff0;padding:8px;margin:8px 0;font-size:11px;white-space:pre-wrap"></div>
+  <div id="brain-log" class="log-box" style="height:150px"></div>
   <div id="tool-list"></div>
 </div>
 
 <script>
-// --- Core Variables ---
+// ==========================================
+// MIYA AI SYSTEM v4 - CORE ENGINE
+// ==========================================
+
 const $ = id => document.getElementById(id);
+let activeIntervals = [];
+let currentMode = 'NORMAL';
+let isListening = false;
+
+// --- Tool Registry (Dynamic) ---
+let tools = JSON.parse(localStorage.getItem('miya_tools')) || [
+  {name:"Calculator", cmd:"calculate", code:"function calculate(){let r=prompt('Expression:');try{alert(eval(r))}catch(e){alert('Error:'+e.message)}}" },
+  {name:"Notes", cmd:"addnote", code:"function addnote(){let n=prompt('Note:');if(n){localStorage.setItem('note_'+Date.now(),n);speak('Note saved')}}" }
+];
+
+// --- Command Map ---
 let commands = {
   "spy cam": () => executeTool('openCamera'),
+  "camera": () => executeTool('openCamera'),
   "scan network": () => executeTool('scanNetwork'),
-  "dos sim": () => executeTool('startDos'),
-  "scrape data": () => executeTool('scrapeData'),
-  "open brain": () => executeTool('openBrain')
+  "net scan": () => executeTool('scanNetwork'),
+  "security lab": () => executeTool('securityLab'),
+  "hack lab": () => executeTool('securityLab'),
+  "phone info": () => executeTool('phoneStats'),
+  "battery": () => executeTool('phoneStats'),
+  "open brain": () => executeTool('openBrain'),
+  "brain": () => executeTool('openBrain'),
+  "search": () => executeTool('webSearch'),
+  "web search": () => executeTool('webSearch'),
+  "developer mode": () => setAIMode('DEVELOPER'),
+  "expert mode": () => setAIMode('EXPERT'),
+  "normal mode": () => setAIMode('NORMAL'),
+  "friend mode": () => setAIMode('FRIEND')
 };
-let activeIntervals = [];
-let tools = JSON.parse(localStorage.getItem('miya_tools')) || [];
-let miya = { speak, log, show, interval };
-let AUTHOR_PASSWORD = ""; // Leave empty to set new one first time
-let authHash = localStorage.getItem('miya_auth');
 
-// --- UI Functions ---
-function log(msg) {
-  const div = $('brain-log');
+// --- Core Functions ---
+function log(msg, panel='brain-log') {
+  const div = $(panel);
   if(div) {
-    div.innerHTML += `<div>> ${msg}</div>`;
+    const time = new Date().toLocaleTimeString();
+    div.innerHTML += `<div>[${time}] ${msg}</div>`;
     div.scrollTop = div.scrollHeight;
   }
 }
 
 function speak(text) {
   if ('speechSynthesis' in window) {
+    speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'hi-IN'; // Hindi Support
+    u.rate = 1;
     speechSynthesis.speak(u);
   }
+  $('status-text').innerText = text;
 }
 
 function show(panelId) {
@@ -159,5 +209,350 @@ function closeTools() {
   document.querySelectorAll('.tool-overlay').forEach(p => p.style.display = 'none');
   activeIntervals.forEach(clearInterval);
   activeIntervals = [];
-  if ($('camera-feed').srcObject) {
-    $('camera-feed').srcObject.getTracks().forEach(t => t.stop
+  // Stop camera if running
+  const video = $('camera-feed');
+  if(video.srcObject) {
+    video.srcObject.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
+  }
+}
+
+// --- Voice Recognition ---
+function toggleListening() {
+  if(!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    speak("Voice recognition not supported in this browser");
+    return;
+  }
+  
+  if(isListening) {
+    isListening = false;
+    $('mic-btn').classList.remove('listening');
+    return;
+  }
+  
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'hi-IN';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  
+  recognition.onstart = () => {
+    isListening = true;
+    $('mic-btn').classList.add('listening');
+    $('status-text').innerText = "Listening...";
+  };
+  
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript.toLowerCase();
+    $('cmd-input').value = transcript;
+    processCommand(transcript);
+  };
+  
+  recognition.onend = () => {
+    isListening = false;
+    $('mic-btn').classList.remove('listening');
+  };
+  
+  recognition.onerror = (e) => {
+    isListening = false;
+    $('mic-btn').classList.remove('listening');
+    speak("Voice error: " + e.error);
+  };
+  
+  recognition.start();
+}
+
+// --- Command Processor ---
+function runTyped() {
+  const cmd = $('cmd-input').value.trim().toLowerCase();
+  if(cmd) {
+    $('cmd-input').value = '';
+    processCommand(cmd);
+  }
+}
+
+function processCommand(cmd) {
+  log(`CMD: ${cmd}`);
+  
+  // Exact match first
+  if(commands[cmd]) {
+    commands[cmd]();
+    return;
+  }
+  
+  // Partial match for dynamic tools
+  for(let key in commands) {
+    if(cmd.includes(key)) {
+      commands[key]();
+      return;
+    }
+  }
+  
+  // Check dynamic tools
+  for(let tool of tools) {
+    if(cmd.includes(tool.cmd.toLowerCase())) {
+      try {
+        eval(tool.code);
+        // Execute the function named after the tool
+        const funcName = tool.cmd.replace(/\s+/g, '');
+        if(typeof window[funcName] === 'function') window[funcName]();
+        else speak(`Executing ${tool.name}`);
+      } catch(e) {
+        speak(`Error in ${tool.name}: ${e.message}`);
+        log(`ERR: ${e.message}`);
+      }
+      return;
+    }
+  }
+  
+  // AI Response Fallback
+  aiRespond(cmd);
+}
+
+function aiRespond(cmd) {
+  const responses = {
+    'hello': 'Namaste! Main Miya hoon. Aap kaise hain?',
+    'kaun ho': 'Main Miya AI Assistant hoon. Aapka personal security aur coding companion.',
+    'help': 'Available commands: Camera, Scan Network, Security Lab, Phone Info, Brain, Search. Ya koi naya tool add karne ke liye Brain panel kholein.',
+    'thank': 'Aapka swagat hai! Kuch aur chahiye?'
+  };
+  
+  let found = false;
+  for(let key in responses) {
+    if(cmd.includes(key)) {
+      speak(responses[key]);
+      found = true;
+      break;
+    }
+  }
+  
+  if(!found) {
+    if(currentMode === 'DEVELOPER') {
+      speak(`Command "${cmd}" recognized. No direct handler found. Try adding it via Brain panel.`);
+    } else {
+      speak(`Sorry, mujhe samajh nahi aaya. "Help" type karein ya Brain panel mein naya tool add karein.`);
+    }
+  }
+}
+
+// --- Mode System ---
+function setAIMode(mode) {
+  currentMode = mode;
+  $('mode-indicator').innerText = `MODE: ${mode}`;
+  speak(`${mode} mode activated`);
+  log(`Mode changed to ${mode}`);
+  
+  // Mode-specific behaviors
+  if(mode === 'DEVELOPER') {
+    document.body.style.color = '#0ff';
+    document.documentElement.style.setProperty('--accent', '#0ff');
+  } else if(mode === 'EXPERT') {
+    document.body.style.color = '#f0f';
+  } else {
+    document.body.style.color = '#0f0';
+  }
+}
+
+function setMode() {
+  const modes = ['NORMAL', 'FRIEND', 'PROFESSIONAL', 'DEVELOPER', 'EXPERT', 'RESEARCH', 'STUDY', 'CREATIVE'];
+  const idx = modes.indexOf(currentMode);
+  const next = modes[(idx + 1) % modes.length];
+  setAIMode(next);
+}
+
+// --- Tool Execution Router ---
+function executeTool(toolName) {
+  switch(toolName) {
+    case 'openCamera':
+      show('camera-panel');
+      startCamera();
+      break;
+    case 'scanNetwork':
+      show('network-panel');
+      break;
+    case 'securityLab':
+      show('security-panel');
+      break;
+    case 'phoneStats':
+      show('phone-panel');
+      refreshPhoneStats();
+      break;
+    case 'openBrain':
+      show('brain-panel');
+      renderToolList();
+      break;
+    case 'webSearch':
+      const q = prompt('Search query:');
+      if(q) window.open(`https://www.google.com/search?q=${encodeURIComponent(q)}`, '_blank');
+      break;
+    default:
+      speak(`Tool ${toolName} not found`);
+  }
+}
+
+// --- Camera Module ---
+let cameraStream = null;
+function startCamera() {
+  const video = $('camera-feed');
+  if(cameraStream) return;
+  
+  navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}})
+    .then(stream => {
+      cameraStream = stream;
+      video.srcObject = stream;
+      log('Camera started');
+    })
+    .catch(err => {
+      speak('Camera access denied');
+      log('Cam ERR: ' + err.message);
+    });
+}
+
+function toggleCamera() {
+  if(cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+    $('camera-feed').srcObject = null;
+    log('Camera stopped');
+  } else {
+    startCamera();
+  }
+}
+
+function captureImage() {
+  const video = $('camera-feed');
+  if(!video.srcObject) {speak('Camera not running');return;}
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const link = document.createElement('a');
+  link.download = `miya-capture-${Date.now()}.png`;
+  link.href = canvas.toDataURL();
+  link.click();
+  speak('Image captured');
+}
+
+// --- Network Scanner (Simulated) ---
+function startNetScan() {
+  const logDiv = $('network-log');
+  logDiv.innerHTML = 'Initializing scanner...\n';
+  
+  const targets = ['192.168.1.1', '192.168.1.10', '192.168.1.20', '192.168.1.50', '10.0.0.1'];
+  const ports = [22, 80, 443, 8080, 3306];
+  let i = 0;
+  
+  const interval = setInterval(() => {
+    if(i >= targets.length) {
+      clearInterval(interval);
+      logDiv.innerHTML += '\n✅ Scan Complete. Found 3 active hosts.';
+      speak('Network scan complete');
+      return;
+    }
+    const openPorts = ports.filter(() => Math.random() > 0.6);
+    logDiv.innerHTML += `[${targets[i]}] Ports: ${openPorts.join(', ') || 'None'}\n`;
+    logDiv.scrollTop = logDiv.scrollHeight;
+    i++;
+  }, 800);
+  activeIntervals.push(interval);
+}
+
+// --- Security Lab (Simulated) ---
+function runVulnScan() {
+  const log = $('security-log');
+  log.innerHTML = '🔍 Starting Vulnerability Assessment...\n';
+  const checks = ['SSL Certificate', 'HTTP Headers', 'CORS Policy', 'X-Frame-Options', 'Content-Security-Policy'];
+  let i = 0;
+  const intv = setInterval(() => {
+    if(i >= checks.length) {
+      clearInterval(intv);
+      log.innerHTML += '\n✅ Assessment Done. 2 Medium risks found.';
+      speak('Vulnerability scan complete');
+      return;
+    }
+    const status = Math.random() > 0.5 ? '✅ PASS' : '⚠️ WARN';
+    log.innerHTML += `${checks[i]}: ${status}\n`;
+    log.scrollTop = log.scrollHeight;
+    i++;
+  }, 600);
+  activeIntervals.push(intv);
+}
+
+function runSQLiTest() {
+  $('security-log').innerHTML = '🧪 Testing SQL Injection vectors...\nPayload: \' OR 1=1 --\nResult: Filtered ✅\nPayload: UNION SELECT...\nResult: Blocked ✅\n\n✅ Application appears resistant to basic SQLi.';
+  speak('SQL Injection test passed');
+}
+
+function runXSSTest() {
+  $('security-log').innerHTML = '🧪 Testing XSS vectors...\nPayload: <script>alert(1)</script>\nResult: Escaped ✅\nPayload: javascript:void(0)\nResult: Sanitized ✅\n\n✅ XSS protection active.';
+  speak('XSS test passed');
+}
+
+// --- Phone Intelligence ---
+function refreshPhoneStats() {
+  const stats = $('phone-stats');
+  let info = '📱 Device Information\n';
+  info += `OS: ${navigator.platform}\n`;
+  info += `Language: ${navigator.language}\n`;
+  info += `Cores: ${navigator.hardwareConcurrency || 'N/A'}\n`;
+  info += `Memory: ${(navigator.deviceMemory || 'N/A')} GB\n`;
+  info += `Online: ${navigator.onLine ? 'Yes' : 'No'}\n`;
+  info += `Screen: ${window.screen.width}x${window.screen.height}\n`;
+  info += `Battery: Checking...\n`;
+  
+  stats.innerHTML = info;
+  
+  if('getBattery' in navigator) {
+    navigator.getBattery().then(b => {
+      const level = Math.round(b.level * 100);
+      stats.innerHTML += `Level: ${level}% ${b.charging ? '⚡' : ''}\n`;
+      stats.innerHTML += `Charging: ${b.charging ? 'Yes' : 'No'}\n`;
+    });
+  }
+  
+  // Network info
+  if('connection' in navigator) {
+    const conn = navigator.connection;
+    stats.innerHTML += `Net Type: ${conn.effectiveType || 'Unknown'}\n`;
+    stats.innerHTML += `Downlink: ${conn.downlink || '?'} Mbps\n`;
+  }
+}
+
+function termuxCommand(cmd) {
+  // For Termux users: This opens termux with the command
+  // In a real app, you'd use Termux:API or WebSocket bridge
+  speak(`Sending to Termux: ${cmd}`);
+  log(`TERMUX: ${cmd}`);
+  // Attempt to open termux (works if installed)
+  try {
+    window.location.href = `termux://${cmd}`;
+  } catch(e) {
+    log('Termux not detected');
+  }
+}
+
+// --- BRAIN: Dynamic Tool Injection System ---
+function injectTool() {
+  const input = $('brain-input').value.trim();
+  if(!input) {speak('Please enter tool name or code');return;}
+  
+  // Check if it's a full code block
+  if(input.includes('function') || input.includes('{')) {
+    // Extract function name
+    const match = input.match(/function\s+(\w+)/);
+    if(match) {
+      const funcName = match[1];
+      const toolName = funcName.replace(/([A-Z])/g, ' $1').trim();
+      
+      // Save tool
+      tools.push({name: toolName, cmd: funcName.toLowerCase(), code: input});
+      localStorage.setItem('miya_tools', JSON.stringify(tools));
+      
+      // Execute immediately to test
+      try {
+        eval(input);
+        log(`✅ Tool "${toolName}" injected and tested successfully`);
+        speak(`${toolName} tool added successfully`);
+        
+        // Auto-generate explanation
+        

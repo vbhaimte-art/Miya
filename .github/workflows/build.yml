@@ -107,16 +107,25 @@ jobs:
         run: |
           cd miya-app
           
-          # Ensure wrapper properties exist using echo (Safe for mobile editors)
+          # Create wrapper directory
           mkdir -p gradle/wrapper
+          
+          # Write properties using echo (Safe for mobile editors)
           echo "distributionBase=GRADLE_USER_HOME" > gradle/wrapper/gradle-wrapper.properties
           echo "distributionPath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
           echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip" >> gradle/wrapper/gradle-wrapper.properties
           echo "zipStoreBase=GRADLE_USER_HOME" >> gradle/wrapper/gradle-wrapper.properties
           echo "zipStorePath=wrapper/dists" >> gradle/wrapper/gradle-wrapper.properties
 
-          # Generate proper wrapper using system gradle (Available via setup-gradle action)
-          gradle wrapper --gradle-version 8.9
+          # Download gradle-wrapper.jar directly from official source
+          wget -q https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar -O gradle/wrapper/gradle-wrapper.jar
+          
+          # Create gradlew script manually
+          cat > gradlew <<'SCRIPT'
+#!/bin/sh
+exec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"
+SCRIPT
+          chmod +x gradlew
           
           # Build APK
           ./gradlew assembleDebug --no-daemon --stacktrace

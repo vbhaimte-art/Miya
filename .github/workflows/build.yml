@@ -1,7 +1,7 @@
 name: Build Miya APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # <--- Ye line sabse zaroori hai button ke liye
   push:
     branches: [main]
     paths:

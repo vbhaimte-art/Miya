@@ -103,8 +103,8 @@ jobs:
             print(f"❌ Patch failed: {e}")
           PYEOF
 
-            - name: Build Debug APK
-        run: |
+      - name: Build Debug APK
+      run: |
           cd miya-app
           
           # Create wrapper directory

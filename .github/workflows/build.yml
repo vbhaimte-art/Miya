@@ -6,10 +6,9 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/build.yml'
-      - 'scripts/miya-setup.txt'
-      - 'scripts/miya-voice.txt'
-      - 'security/SecurityModule.java'
-      - 'assets/index.html'
+      - 'scripts/**'
+      - 'security/**'
+      - 'assets/**'
       - '*.vrm'
 
 permissions:
@@ -27,7 +26,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Gradle
+      - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
@@ -36,85 +35,92 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y unzip wget
           ANDROID_SDK_ROOT=$HOME/android-sdk
-          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
-          cd $ANDROID_SDK_ROOT/cmdline-tools
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          cd "$ANDROID_SDK_ROOT/cmdline-tools"
           wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O tools.zip
           unzip -q tools.zip && mv cmdline-tools latest
-          export PATH=$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0" > /dev/null || true
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-
-      - name: Make setup executable
-        run: chmod +x scripts/miya-setup.txt
+          SDKM="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
 
       - name: Create project structure
         run: bash scripts/miya-setup.txt
 
-      # ✅ NEW STEP: Enable AndroidX to fix checkDebugAarMetadata error
-      - name: Enable AndroidX in gradle.properties
-        run: |
-          PROPS_FILE="miya-app/gradle.properties"
-          if [ ! -f "$PROPS_FILE" ]; then
-            touch "$PROPS_FILE"
-          fi
-          grep -q "android.useAndroidX=true" "$PROPS_FILE" || echo "android.useAndroidX=true" >> "$PROPS_FILE"
-          grep -q "android.enableJetifier=true" "$PROPS_FILE" || echo "android.enableJetifier=true" >> "$PROPS_FILE"
-          echo "✅ AndroidX enabled successfully"
-
       - name: Install Voice Service
         run: |
           mkdir -p miya-app/app/src/main/java/com/miya/app
-          cp scripts/miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
+          if [ -f scripts/miya-voice.txt ]; then
+            cp scripts/miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
+            echo "✅ Voice service installed"
+          else
+            echo "⚠️ miya-voice.txt missing — placeholder service use hoga"
+          fi
+
+      # ✅ FIX: assets/index.html ab actually app mein jata hai
+      - name: Install Web UI + VRM
+        run: |
+          mkdir -p miya-app/app/src/main/assets
+          if [ -f assets/index.html ]; then
+            cp assets/index.html miya-app/app/src/main/assets/index.html
+            echo "✅ Web UI installed"
+          else
+            echo "⚠️ assets/index.html missing — placeholder use hoga"
+          fi
+          for f in *.vrm; do
+            [ -e "$f" ] && cp -f "$f" miya-app/app/src/main/assets/ && echo "✅ Model: $f"
+          done
 
       - name: Inject Security Module
-        if: ${{ github.event_name == 'push' }}
         run: |
           if [ -f security/SecurityModule.java ]; then
             cp security/SecurityModule.java miya-app/app/src/main/java/com/miya/app/SecurityModule.java
             echo "✅ SecurityModule injected"
           else
-            echo "⚠️ SecurityModule.java not found, skipping..."
+            echo "ℹ️ SecurityModule.java not found — skipping"
           fi
 
+      # ✅ FIX: khali secret ka guard
       - name: Insert API Token
         env:
           MIYA_TOKEN: ${{ secrets.MIYA_TOKEN }}
         run: |
           FILE="miya-app/app/src/main/java/com/miya/app/MiyaService.java"
-          if grep -q "APP_KEY" "$FILE"; then
+          if [ -z "$MIYA_TOKEN" ]; then
+            echo "⚠️ MIYA_TOKEN secret khali hai — placeholder chal raha hai"
+          elif grep -q "static final String APP_KEY" "$FILE"; then
             sed -i "s|static final String APP_KEY = .*;|static final String APP_KEY = \"$MIYA_TOKEN\";|" "$FILE"
-            echo "✅ Token injected safely"
+            echo "✅ Token injected"
           else
             echo "⚠️ APP_KEY placeholder not found"
           fi
 
-      - name: Patch Manifest
+      # ✅ FIX: python patch hata ke hard validation (fail-fast, clear error)
+      - name: Validate Manifest
         run: |
-          python3 - <<'PYEOF'
-          p = 'miya-app/app/src/main/AndroidManifest.xml'
-          try:
-              t = open(p, encoding='utf-8').read()
-              if 'foregroundServiceType="microphone"' not in t:
-                  t = t.replace('<service android:name=".MiyaService"', 
-                                '<service android:name=".MiyaService" android:foregroundServiceType="microphone"')
-              if 'FOREGROUND_SERVICE_MICROPHONE' not in t:
-                  t = t.replace('android.permission.FOREGROUND_SERVICE"/>', 
-                                'android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>')
-              open(p, 'w', encoding='utf-8').write(t)
-              print("✅ Manifest patched")
-          except Exception as e:
-            print(f"❌ Patch failed: {e}")
-          PYEOF
+          M=miya-app/app/src/main/AndroidManifest.xml
+          grep -q 'foregroundServiceType="microphone"' "$M" || { echo "❌ FGS type missing"; exit 1; }
+          grep -q 'FOREGROUND_SERVICE_MICROPHONE' "$M" || { echo "❌ FGS mic permission missing"; exit 1; }
+          grep -q 'RECORD_AUDIO' "$M" || { echo "❌ RECORD_AUDIO missing"; exit 1; }
+          echo "✅ Manifest OK"
 
       - name: Build Debug APK
         run: |
           cd miya-app
           gradle assembleDebug --no-daemon --stacktrace
 
+      # ✅ FIX: build fail bhi ho to APK/logs artifact mein milenge
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miya-build-${{ github.run_number }}
+          path: miya-app/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+
       - name: Rename APK
-        run: cp miya-app/app/build/outputs/apk/debug/app-debug.apk Miya-${{ github.run_number }}.apk
+        run: cp miya-app/app/build/outputs/apk/debug/app-debug.apk "Miya-${{ github.run_number }}.apk"
 
       - name: Publish Release
         uses: softprops/action-gh-release@v2

@@ -191,6 +191,11 @@ jobs:
                   'com.koushikdutta.superuser', 'com.noshufou.android.su']
           q = ''.join('        <package android:name="%s"/>\n' % x
                       for x in pkgs if '"%s"' % x not in s)
+          # SpeechRecognizer Android 11+ pe RecognitionService dhoondhne ke liye ye maangta hai
+          if 'android.speech.RecognitionService' not in s:
+              q += ('        <intent>\n'
+                    '            <action android:name="android.speech.RecognitionService"/>\n'
+                    '        </intent>\n')
           if q and '<queries>' not in s:
               add += '    <queries>\n' + q + '    </queries>\n'
               q = ''
@@ -253,4 +258,4 @@ jobs:
           tag_name: miya-${{ github.run_number }}
           name: Miya Build #${{ github.run_number }}
           files: Miya-${{ github.run_number }}.apk
-          generate_release_notes: true
+          generate_release_notes: true 

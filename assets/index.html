@@ -148,6 +148,17 @@ input.in{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;width:100
     cmdEl.value = '';
   }
 
+  // Wake word: "Miya, battery batao" -> native service bola hua text yahan bhejti hai
+  window.onMiyaWake = function (text) {
+    if (text) {
+      log('🎙 Heard: ' + text);
+      cmdEl.value = text;
+      run();
+    } else {
+      log('🎙 Miya sun rahi hai... command boliye');
+    }
+  };
+
   // FIX: inline onclick hata ke listeners (CSP-safe), "Max Brightness" ab sach mein max (255)
   document.getElementById('btn-battery').addEventListener('click', getBattery);
   document.getElementById('btn-bright').addEventListener('click', function () { setBright(MAX_BRIGHTNESS); });

@@ -118,12 +118,17 @@ jobs:
           if not re.search(r'buildConfig\s*=?\s*true', s):
               line = 'buildFeatures { buildConfig = true }' if kts else 'buildFeatures { buildConfig true }'
               s = insert_after(r'^android\s*\{', line, s, 'android')
-          if 'EXPECTED_SIG_SHA256' not in s:
-              line = ('buildConfigField("String", "EXPECTED_SIG_SHA256", "\\"\\"")' if kts
-                      else 'buildConfigField "String", "EXPECTED_SIG_SHA256", "\\"\\""')
-              s = insert_after(r'defaultConfig\s*\{', line, s, 'defaultConfig')
+          fields = [('EXPECTED_SIG_SHA256', 'String', '"\\"\\""'),
+                    ('INTEGRITY_BASE_URL', 'String', '"\\"\\""'),
+                    ('CLOUD_PROJECT_NUMBER', 'long', '"0L"')]
+          for name, typ, val in fields:
+              if name not in s:
+                  fmt = 'buildConfigField("%s", "%s", %s)' if kts else 'buildConfigField "%s", "%s", %s'
+                  s = insert_after(r'defaultConfig\s*\{', fmt % (typ, name, val), s, 'defaultConfig')
           deps = [('security-crypto', 'androidx.security:security-crypto:1.1.0-alpha06'),
-                  ('play:integrity', 'com.google.android.play:integrity:1.4.0')]
+                  ('play:integrity', 'com.google.android.play:integrity:1.4.0'),
+                  ('androidx.biometric', 'androidx.biometric:biometric:1.1.0'),
+                  ('androidx.webkit', 'androidx.webkit:webkit:1.11.0')]
           for key, coord in deps:
               if key not in s:
                   line = ('implementation("%s")' if kts else 'implementation "%s"') % coord
@@ -167,16 +172,32 @@ jobs:
           except FileNotFoundError:
               print('❌ AndroidManifest.xml nahi bana (scripts/miya-setup.txt check karo)'); sys.exit(1)
 
+          # MainActivity ye permissions runtime pe maangti hai; manifest mein na hon to
+          # silently deny ho jati hain. POST_NOTIFICATIONS Android 13+.
           perms = ['android.permission.FOREGROUND_SERVICE',
                    'android.permission.FOREGROUND_SERVICE_MICROPHONE',
-                   'android.permission.RECORD_AUDIO']
+                   'android.permission.RECORD_AUDIO',
+                   'android.permission.CAMERA',
+                   'android.permission.ACCESS_FINE_LOCATION',
+                   'android.permission.POST_NOTIFICATIONS']
           add = ''.join('    <uses-permission android:name="%s"/>\n' % x
                         for x in perms if '"%s"' % x not in s)
           m = re.search(r'<application\b', s)
           if not m:
               print('❌ <application> tag nahi mila'); sys.exit(1)
+
+          # Android 11+: openApp("com.whatsapp") aur root-package check ke liye <queries> zaroori
+          pkgs = ['com.whatsapp', 'com.topjohnwu.magisk', 'eu.chainfire.supersu',
+                  'com.koushikdutta.superuser', 'com.noshufou.android.su']
+          q = ''.join('        <package android:name="%s"/>\n' % x
+                      for x in pkgs if '"%s"' % x not in s)
+          if q and '<queries>' not in s:
+              add += '    <queries>\n' + q + '    </queries>\n'
+              q = ''
           if add:
               s = s[:m.start()] + add.lstrip() + '    ' + s[m.start():]
+          if q:
+              s = s.replace('<queries>', '<queries>\n' + q.rstrip('\n'), 1)
 
           found = False
           def fix(mt):
@@ -233,9 +254,3 @@ jobs:
           name: Miya Build #${{ github.run_number }}
           files: Miya-${{ github.run_number }}.apk
           generate_release_notes: true
-      # ✅ FIX: assets/index.html ab actually app mein jata hai
-      - name: Install Web UI + VRM
-        run: |
-          mkdir -p miya-app/app/src/main/assets
-          if [ -f assets/index.html ]; then
-            cp assets/in

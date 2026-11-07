@@ -14,9 +14,15 @@ on:
 permissions:
   contents: write
 
+# FIX: ek saath do build chalne se tag/release clash na ho
+concurrency:
+  group: miya-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -31,9 +37,9 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      # FIX: apt-get update hata diya (unzip/wget runner pe already hain, update kabhi-kabhi fail hota hai)
       - name: Install Android SDK
         run: |
-          sudo apt-get update && sudo apt-get install -y unzip wget
           ANDROID_SDK_ROOT=$HOME/android-sdk
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
           cd "$ANDROID_SDK_ROOT/cmdline-tools"
@@ -58,7 +64,7 @@ jobs:
             echo "⚠️ miya-voice.txt missing — placeholder service use hoga"
           fi
 
-      # ✅ FIX: assets/index.html ab actually app mein jata hai
+      # FIX: *.vrm na ho to loop ka last status 1 hota tha aur step fail ho jata tha
       - name: Install Web UI + VRM
         run: |
           mkdir -p miya-app/app/src/main/assets
@@ -68,8 +74,10 @@ jobs:
           else
             echo "⚠️ assets/index.html missing — placeholder use hoga"
           fi
+          shopt -s nullglob
           for f in *.vrm; do
-            [ -e "$f" ] && cp -f "$f" miya-app/app/src/main/assets/ && echo "✅ Model: $f"
+            cp -f "$f" miya-app/app/src/main/assets/
+            echo "✅ Model: $f"
           done
 
       - name: Inject Security Module
@@ -81,22 +89,113 @@ jobs:
             echo "ℹ️ SecurityModule.java not found — skipping"
           fi
 
-      # ✅ FIX: khali secret ka guard
+      # NEW: SecurityModule ko BuildConfig.EXPECTED_SIG_SHA256, buildConfig feature
+      # aur dependencies chahiye. Na hon to "Build Debug APK" compile error deta hai.
+      - name: Patch Gradle for SecurityModule
+        run: |
+          if [ ! -f miya-app/app/src/main/java/com/miya/app/SecurityModule.java ]; then
+            echo "ℹ️ SecurityModule nahi hai — gradle patch skip"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import os, re, sys
+          g = 'miya-app/app/build.gradle'
+          k = 'miya-app/app/build.gradle.kts'
+          if os.path.exists(g):
+              path, kts = g, False
+          elif os.path.exists(k):
+              path, kts = k, True
+          else:
+              print('❌ app build.gradle not found'); sys.exit(1)
+          s = open(path, encoding='utf-8').read()
+
+          def insert_after(pattern, line, s, label):
+              m = re.search(pattern, s, re.M)
+              if not m:
+                  print('❌ ' + label + ' block not found in ' + path); sys.exit(1)
+              return s[:m.end()] + '\n        ' + line + s[m.end():]
+
+          if not re.search(r'buildConfig\s*=?\s*true', s):
+              line = 'buildFeatures { buildConfig = true }' if kts else 'buildFeatures { buildConfig true }'
+              s = insert_after(r'^android\s*\{', line, s, 'android')
+          if 'EXPECTED_SIG_SHA256' not in s:
+              line = ('buildConfigField("String", "EXPECTED_SIG_SHA256", "\\"\\"")' if kts
+                      else 'buildConfigField "String", "EXPECTED_SIG_SHA256", "\\"\\""')
+              s = insert_after(r'defaultConfig\s*\{', line, s, 'defaultConfig')
+          deps = [('security-crypto', 'androidx.security:security-crypto:1.1.0-alpha06'),
+                  ('play:integrity', 'com.google.android.play:integrity:1.4.0')]
+          for key, coord in deps:
+              if key not in s:
+                  line = ('implementation("%s")' if kts else 'implementation "%s"') % coord
+                  s = insert_after(r'^dependencies\s*\{', line, s, 'dependencies')
+          open(path, 'w', encoding='utf-8').write(s)
+          print('✅ Gradle patched: ' + path)
+          PY
+
+      # FIX: sed token mein | & \ " aaye to toot jata tha (aur Java string bhi). Ab python se safe replace.
       - name: Insert API Token
         env:
           MIYA_TOKEN: ${{ secrets.MIYA_TOKEN }}
         run: |
-          FILE="miya-app/app/src/main/java/com/miya/app/MiyaService.java"
-          if [ -z "$MIYA_TOKEN" ]; then
-            echo "⚠️ MIYA_TOKEN secret khali hai — placeholder chal raha hai"
-          elif grep -q "static final String APP_KEY" "$FILE"; then
-            sed -i "s|static final String APP_KEY = .*;|static final String APP_KEY = \"$MIYA_TOKEN\";|" "$FILE"
-            echo "✅ Token injected"
-          else
-            echo "⚠️ APP_KEY placeholder not found"
-          fi
+          python3 - <<'PY'
+          import os, re, sys
+          f = 'miya-app/app/src/main/java/com/miya/app/MiyaService.java'
+          tok = os.environ.get('MIYA_TOKEN', '')
+          if not tok:
+              print('⚠️ MIYA_TOKEN secret khali hai — placeholder chal raha hai'); sys.exit(0)
+          if not os.path.exists(f):
+              print('⚠️ MiyaService.java nahi mila'); sys.exit(0)
+          s = open(f, encoding='utf-8').read()
+          esc = tok.replace('\\', '\\\\').replace('"', '\\"')
+          new, n = re.subn(r'static final String APP_KEY\s*=\s*.*?;',
+                           lambda m: 'static final String APP_KEY = "' + esc + '";', s, count=1)
+          if n == 0:
+              print('⚠️ APP_KEY placeholder not found'); sys.exit(0)
+          open(f, 'w', encoding='utf-8').write(new)
+          print('✅ Token injected')
+          PY
 
-      # ✅ FIX: python patch hata ke hard validation (fail-fast, clear error)
+      # NEW: manifest mein FGS type + permissions khud lagao (pehle ye patch hata diya gaya tha,
+      # isliye Validate step fail hota tha). Pehle se hon to dobara nahi lagta.
+      - name: Patch Manifest
+        run: |
+          python3 - <<'PY'
+          import re, sys
+          p = 'miya-app/app/src/main/AndroidManifest.xml'
+          try:
+              s = open(p, encoding='utf-8').read()
+          except FileNotFoundError:
+              print('❌ AndroidManifest.xml nahi bana (scripts/miya-setup.txt check karo)'); sys.exit(1)
+
+          perms = ['android.permission.FOREGROUND_SERVICE',
+                   'android.permission.FOREGROUND_SERVICE_MICROPHONE',
+                   'android.permission.RECORD_AUDIO']
+          add = ''.join('    <uses-permission android:name="%s"/>\n' % x
+                        for x in perms if '"%s"' % x not in s)
+          m = re.search(r'<application\b', s)
+          if not m:
+              print('❌ <application> tag nahi mila'); sys.exit(1)
+          if add:
+              s = s[:m.start()] + add.lstrip() + '    ' + s[m.start():]
+
+          found = False
+          def fix(mt):
+              global found
+              tag = mt.group(0)
+              if 'MiyaService' not in tag:
+                  return tag
+              found = True
+              if 'foregroundServiceType' in tag:
+                  return tag
+              return tag.replace('<service', '<service android:foregroundServiceType="microphone"', 1)
+          s = re.sub(r'<service\b[^>]*>', fix, s)
+          if not found:
+              print('❌ MiyaService ka <service> tag manifest mein nahi mila'); print(s); sys.exit(1)
+
+          open(p, 'w', encoding='utf-8').write(s)
+          print(s)
+          PY
+
       - name: Validate Manifest
         run: |
           M=miya-app/app/src/main/AndroidManifest.xml
@@ -110,17 +209,22 @@ jobs:
           cd miya-app
           gradle assembleDebug --no-daemon --stacktrace
 
-      # ✅ FIX: build fail bhi ho to APK/logs artifact mein milenge
+      # FIX: comment mein "logs" tha par upload mein sirf APK tha. Ab build reports bhi.
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: miya-build-${{ github.run_number }}
-          path: miya-app/app/build/outputs/apk/debug/*.apk
+          path: |
+            miya-app/app/build/outputs/apk/debug/*.apk
+            miya-app/app/build/reports/
           if-no-files-found: ignore
 
+      # FIX: APK ka naam app-debug.apk hardcoded tha
       - name: Rename APK
-        run: cp miya-app/app/build/outputs/apk/debug/app-debug.apk "Miya-${{ github.run_number }}.apk"
+        run: |
+          APK=$(ls miya-app/app/build/outputs/apk/debug/*.apk | head -n 1)
+          cp "$APK" "Miya-${{ github.run_number }}.apk"
 
       - name: Publish Release
         uses: softprops/action-gh-release@v2
@@ -129,3 +233,9 @@ jobs:
           name: Miya Build #${{ github.run_number }}
           files: Miya-${{ github.run_number }}.apk
           generate_release_notes: true
+      # ✅ FIX: assets/index.html ab actually app mein jata hai
+      - name: Install Web UI + VRM
+        run: |
+          mkdir -p miya-app/app/src/main/assets
+          if [ -f assets/index.html ]; then
+            cp assets/in

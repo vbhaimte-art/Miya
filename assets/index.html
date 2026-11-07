@@ -74,6 +74,26 @@ input.in{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;width:100
     }
   }
 
+  // Sensitive actions (brightness, openApp) ke liye pehle biometric/PIN unlock
+  var pendingAction = null;
+
+  function withUnlock(action) {
+    if (!hasBridge('isSessionActive') || !hasBridge('authenticate')) return action();
+    var r = callNative('isSessionActive');
+    if (r.ok && (r.value === true || r.value === 'true')) return action();
+    pendingAction = action;
+    log('🔒 Unlock required...');
+    callNative('authenticate');
+  }
+
+  // Native side authenticate hone ke baad isse call karta hai
+  window.onMiyaAuth = function (ok) {
+    var a = pendingAction;
+    pendingAction = null;
+    if (ok && a) { log('🔓 Unlocked'); a(); }
+    else log('Unlock cancelled / failed');
+  };
+
   function getBattery() {
     if (!hasBridge('getBatteryInfo')) return log('Native bridge not available (Testing in browser?)');
     var r = callNative('getBatteryInfo');
@@ -85,6 +105,10 @@ input.in{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;width:100
 
   function setBright(level) {
     if (!hasBridge('setBrightness')) return log('Brightness control requires Android App');
+    withUnlock(function () { doSetBright(level); });
+  }
+
+  function doSetBright(level) {
     // FIX: valid range 0-255
     level = Math.max(0, Math.min(MAX_BRIGHTNESS, Math.round(Number(level) || 0)));
     var r = callNative('setBrightness', level);
@@ -93,8 +117,10 @@ input.in{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;width:100
 
   function openWhatsApp() {
     if (hasBridge('openApp')) {
-      var r = callNative('openApp', 'com.whatsapp');
-      if (r.ok) log('Opening WhatsApp...');
+      withUnlock(function () {
+        var r = callNative('openApp', 'com.whatsapp');
+        if (r.ok) log('Opening WhatsApp...');
+      });
       return;
     }
     // FIX: window.open WebView mein crash/block hota hai, to same-window navigate

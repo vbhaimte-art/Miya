@@ -1,6 +1,8 @@
 package com.miya.app;
 
+import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
@@ -20,7 +22,13 @@ import com.google.android.play.core.integrity.IntegrityManager;
 import com.google.android.play.core.integrity.IntegrityManagerFactory;
 import com.google.android.play.core.integrity.IntegrityTokenRequest;
 
+import org.json.JSONObject;
+
 import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.io.File;
 import java.io.FileReader;
 import java.io.InputStreamReader;
@@ -66,6 +74,8 @@ public final class SecurityModule {
     public enum Threat { NONE, TAMPERED, DEBUGGER, HOOKING, CLONED, ROOT, EMULATOR }
 
     public interface ThreatCallback { void onResult(Threat threat); }
+
+    public interface ServerCallback { void onResult(boolean ok, String reason); }
 
     public interface IntegrityCallback {
         void onToken(String token);
@@ -594,6 +604,99 @@ public final class SecurityModule {
                         .build())
                 .addOnSuccessListener(r -> cb.onToken(r.token()))
                 .addOnFailureListener(cb::onError);
+    }
+
+    // ------------------------------------------------------------------
+    // 9. SERVER VERIFY (nonce -> Play Integrity token -> server verdict)
+    //    Server API (aapko banana hai):
+    //      GET  {base}/nonce   -> {"nonce":"<base64url random>"}
+    //      POST {base}/verify  body {"token":"..","nonce":".."} -> {"ok":true|false}
+    //    Server hi Google ke decodeIntegrityToken se verdict check kare.
+    //    Network/server fail = BLOCK (fail-closed).
+    // ------------------------------------------------------------------
+    public static void verifyWithServer(final Context context, final String baseUrl,
+                                        final long cloudProjectNumber, final ServerCallback cb) {
+        final Context app = context.getApplicationContext();
+        if (baseUrl == null || !baseUrl.startsWith("https://")) {
+            postResult(cb, false, "server url https nahi hai");
+            return;
+        }
+        final String base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+        EXEC.execute(() -> {
+            try {
+                final String nonce = new JSONObject(httpRequest(base + "/nonce", null)).getString("nonce");
+                requestIntegrityToken(app, nonce, cloudProjectNumber, new IntegrityCallback() {
+                    @Override public void onToken(final String token) {
+                        EXEC.execute(() -> {
+                            try {
+                                String body = new JSONObject()
+                                        .put("token", token).put("nonce", nonce).toString();
+                                boolean ok = new JSONObject(httpRequest(base + "/verify", body))
+                                        .optBoolean("ok", false);
+                                postResult(cb, ok, ok ? "ok" : "server ne reject kiya");
+                            } catch (Exception e) {
+                                postResult(cb, false, "verify error: " + e.getMessage());
+                            }
+                        });
+                    }
+                    @Override public void onError(Exception e) {
+                        postResult(cb, false, "integrity error: " + e.getMessage());
+                    }
+                });
+            } catch (Exception e) {
+                postResult(cb, false, "nonce error: " + e.getMessage());
+            }
+        });
+    }
+
+    private static String httpRequest(String url, String jsonBody) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        try {
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            c.setRequestProperty("Accept", "application/json");
+            if (jsonBody != null) {
+                c.setRequestMethod("POST");
+                c.setDoOutput(true);
+                c.setRequestProperty("Content-Type", "application/json");
+                try (OutputStream os = c.getOutputStream()) {
+                    os.write(jsonBody.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+            if (c.getResponseCode() != 200) throw new IOException("HTTP " + c.getResponseCode());
+            try (BufferedReader r = new BufferedReader(
+                    new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = r.readLine()) != null && sb.length() < 65536) sb.append(line);
+                return sb.toString();
+            }
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    private static void postResult(final ServerCallback cb, final boolean ok, final String reason) {
+        MAIN.post(() -> cb.onResult(ok, reason));
+    }
+
+    /** Blocked dialog dikhao, OK dabane par app band. */
+    public static void showBlockedAndExit(final Activity activity) {
+        MAIN.post(() -> {
+            if (activity.isFinishing() || activity.isDestroyed()) {
+                android.os.Process.killProcess(android.os.Process.myPid());
+                return;
+            }
+            new AlertDialog.Builder(activity)
+                    .setTitle("Verification failed")
+                    .setMessage("Ye device/app verify nahi ho paya. App band ho rahi hai.")
+                    .setCancelable(false)
+                    .setPositiveButton("OK", (d, w) -> {
+                        activity.finishAndRemoveTask();
+                        android.os.Process.killProcess(android.os.Process.myPid());
+                    })
+                    .show();
+        });
     }
 
     // ------------------------------------------------------------------

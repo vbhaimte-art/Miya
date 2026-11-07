@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
@@ -45,6 +46,7 @@ public class MainActivity extends FragmentActivity {
     private static final String HOST = "appassets.androidplatform.net";
     private static final String START_URL = "https://" + HOST + "/assets/index.html";
     private static final int REQ_PERMS = 100;
+    private static final int REQ_WEB = 101;
     private static final long SESSION_TIMEOUT_MS = 10 * 60 * 1000L;
     private static final Pattern PKG_PATTERN = Pattern.compile("^[a-zA-Z0-9_.]{1,200}$");
     private static final int AUTHENTICATORS =
@@ -54,6 +56,8 @@ public class MainActivity extends FragmentActivity {
     private WebView webView;
     private WebViewAssetLoader assetLoader;
     private boolean started = false;
+    private boolean voiceStarted = false;
+    private PermissionRequest pendingWebReq;
 
     // Session state (elapsedRealtime: user phone ki clock badal ke bypass nahi kar sakta)
     private volatile boolean unlocked = false;
@@ -74,11 +78,11 @@ public class MainActivity extends FragmentActivity {
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
-                if (webView.canGoBack()) webView.goBack(); else finish();
+                if (webView != null && webView.canGoBack()) webView.goBack(); else finish();
             }
         });
 
-        // Security gate: local checks -> server (Play Integrity) -> tab UI load
+        // Security gate: local checks -> server (Play Integrity) -> UI load
         SecurityModule.runChecksAsync(this, threat -> {
             if (threat != SecurityModule.Threat.NONE) {
                 SecurityModule.enforce(this, threat);
@@ -96,7 +100,12 @@ public class MainActivity extends FragmentActivity {
 
     @Override
     protected void onDestroy() {
+        pendingWebReq = null;
         if (webView != null) {
+            // FIX: destroy se pehle parent se hatao, warna leak/crash ho sakta hai
+            if (webView.getParent() instanceof ViewGroup) {
+                ((ViewGroup) webView.getParent()).removeView(webView);
+            }
             webView.removeJavascriptInterface("Android");
             webView.loadUrl("about:blank");
             webView.destroy();
@@ -116,13 +125,18 @@ public class MainActivity extends FragmentActivity {
         }
         SecurityModule.verifyWithServer(this, url, BuildConfig.CLOUD_PROJECT_NUMBER,
                 (ok, reason) -> {
-                    if (ok) startApp();
-                    else SecurityModule.showBlockedAndExit(this);
+                    if (ok) {
+                        startApp();
+                    } else {
+                        Log.w(TAG, "Server verify failed: " + reason);
+                        SecurityModule.showBlockedAndExit(this);
+                    }
                 });
     }
 
     private void startApp() {
-        if (started || isFinishing()) return;
+        // FIX: callback activity destroy hone ke baad aaye to webView null hota hai (NPE)
+        if (started || isFinishing() || isDestroyed() || webView == null) return;
         started = true;
 
         requestRuntimePermissions();
@@ -134,11 +148,19 @@ public class MainActivity extends FragmentActivity {
             Toast.makeText(this, "Error: assets/index.html missing!", Toast.LENGTH_LONG).show();
         }
 
-        // Service sirf security pass hone ke baad. Background mein zinda rakhna ho to
-        // MiyaService ko foreground service banana padega (service file bhejo).
+        // FIX: mic-type foreground service tabhi, jab RECORD_AUDIO mil chuki ho.
+        // Android 14+ pe bina permission ke service SecurityException se crash hoti hai.
+        if (has(Manifest.permission.RECORD_AUDIO)) startVoiceService();
+    }
+
+    private void startVoiceService() {
+        if (voiceStarted || isFinishing() || isDestroyed()) return;
+        if (!has(Manifest.permission.RECORD_AUDIO)) return;
+        voiceStarted = true;
         try {
             startService(new Intent(this, MiyaService.class));
         } catch (Exception e) {
+            voiceStarted = false;
             Log.w(TAG, "Service start failed", e);
         }
     }
@@ -188,15 +210,13 @@ public class MainActivity extends FragmentActivity {
             public void onPermissionRequest(final PermissionRequest req) {
                 runOnUiThread(() -> {
                     if (!isOwnOrigin(req.getOrigin())) { req.deny(); return; }
-                    List<String> ok = new ArrayList<>();
-                    for (String r : req.getResources()) {
-                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)
-                                && has(Manifest.permission.RECORD_AUDIO)) ok.add(r);
-                        else if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)
-                                && has(Manifest.permission.CAMERA)) ok.add(r);
-                    }
-                    if (ok.isEmpty()) req.deny(); else req.grant(ok.toArray(new String[0]));
+                    handleWebPermission(req, true);
                 });
+            }
+
+            @Override
+            public void onPermissionRequestCanceled(PermissionRequest req) {
+                if (pendingWebReq == req) pendingWebReq = null;
             }
 
             @Override
@@ -207,6 +227,30 @@ public class MainActivity extends FragmentActivity {
                 cb.invoke(origin, allow, false);
             }
         });
+    }
+
+    /**
+     * FIX: pehle permission na hone par request seedha deny ho jati thi.
+     * Ab Android permission maangte hain aur milne ke baad WebView ko grant karte hain.
+     */
+    private void handleWebPermission(PermissionRequest req, boolean mayAsk) {
+        List<String> ok = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        for (String r : req.getResources()) {
+            if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) {
+                if (has(Manifest.permission.RECORD_AUDIO)) ok.add(r);
+                else missing.add(Manifest.permission.RECORD_AUDIO);
+            } else if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) {
+                if (has(Manifest.permission.CAMERA)) ok.add(r);
+                else missing.add(Manifest.permission.CAMERA);
+            }
+        }
+        if (!missing.isEmpty() && mayAsk && pendingWebReq == null) {
+            pendingWebReq = req;
+            ActivityCompat.requestPermissions(this, missing.toArray(new String[0]), REQ_WEB);
+            return;
+        }
+        if (ok.isEmpty()) req.deny(); else req.grant(ok.toArray(new String[0]));
     }
 
     private static boolean isOwnOrigin(Uri u) {
@@ -245,6 +289,14 @@ public class MainActivity extends FragmentActivity {
     public void onRequestPermissionsResult(int code, @NonNull String[] perms,
                                            @NonNull int[] results) {
         super.onRequestPermissionsResult(code, perms, results);
+
+        if (code == REQ_WEB) {
+            PermissionRequest r = pendingWebReq;
+            pendingWebReq = null;
+            if (r != null) handleWebPermission(r, false);
+            return;
+        }
+
         if (code != REQ_PERMS) return;
         for (int r : results) {
             if (r != PackageManager.PERMISSION_GRANTED) {
@@ -253,6 +305,8 @@ public class MainActivity extends FragmentActivity {
                 break;
             }
         }
+        // Mic permission ab mili hai -> voice service chalao
+        startVoiceService();
     }
 
     // ------------------------------------------------------------------
@@ -349,6 +403,7 @@ public class MainActivity extends FragmentActivity {
             if (packageName == null || !PKG_PATTERN.matcher(packageName).matches()) return;
             runOnUiThread(() -> {
                 try {
+                    // NOTE: Android 11+ pe manifest mein <queries><package .../> zaroori hai
                     Intent i = getPackageManager().getLaunchIntentForPackage(packageName);
                     if (i != null) startActivity(i);
                     else toast("App nahi mili");

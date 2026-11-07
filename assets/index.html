@@ -2,73 +2,137 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Miya AI System v4</title>
 <style>
-body{margin:0;font-family:'Courier New',monospace;background:#000;color:#0f0;overflow:hidden}
-#main-ui{display:flex;flex-direction:column;align-items:center;height:100vh;padding:20px;box-sizing:border-box}
-.ctrl-btn{background:#111;border:1px solid #0f0;color:#0f0;padding:12px;margin:5px;width:100%;max-width:300px;cursor:pointer;border-radius:4px}
+html,body{margin:0;height:100%}
+body{font-family:'Courier New',monospace;background:#000;color:#0f0}
+#main-ui{display:flex;flex-direction:column;align-items:center;min-height:100%;padding:20px;box-sizing:border-box;overflow-y:auto}
+.ctrl-btn{background:#111;border:1px solid #0f0;color:#0f0;padding:12px;margin:5px;width:100%;max-width:300px;cursor:pointer;border-radius:4px;font-family:inherit}
 .ctrl-btn:active{background:#0f0;color:#000}
-.log-box{width:100%;max-width:350px;height:200px;border:1px solid #333;background:#0a0a0a;color:#0f0;padding:10px;overflow-y:auto;font-size:11px;margin-top:10px;white-space:pre-wrap}
-input.in{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;width:100%;max-width:300px;box-sizing:border-box;margin:10px 0;font-family:inherit}
+.log-box{width:100%;max-width:350px;height:200px;border:1px solid #333;background:#0a0a0a;color:#0f0;padding:10px;overflow-y:auto;font-size:11px;margin-top:10px;white-space:pre-wrap;box-sizing:border-box}
+input.in{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;width:100%;max-width:300px;box-sizing:border-box;margin:10px 0;font-family:inherit;font-size:16px}
 </style>
 </head>
 <body>
 <div id="main-ui">
   <h2>🤖 Miya AI v4</h2>
   <div id="status">System Ready</div>
-  
-  <input class="in" id="cmd" placeholder="Type command..." onkeydown="if(event.key==='Enter')run()">
-  
-  <button class="ctrl-btn" onclick="getBattery()">🔋 Check Battery</button>
-  <button class="ctrl-btn" onclick="setBright(200)">💡 Max Brightness</button>
-  <button class="ctrl-btn" onclick="openWhatsApp()">💬 Open WhatsApp</button>
-  <button class="ctrl-btn" onclick="getInfo()">📱 Device Info</button>
-  
+
+  <input class="in" id="cmd" placeholder="Type command..." autocomplete="off">
+
+  <button class="ctrl-btn" id="btn-battery">🔋 Check Battery</button>
+  <button class="ctrl-btn" id="btn-bright">💡 Max Brightness</button>
+  <button class="ctrl-btn" id="btn-wa">💬 Open WhatsApp</button>
+  <button class="ctrl-btn" id="btn-info">📱 Device Info</button>
+
   <div id="log" class="log-box">Waiting for commands...</div>
 </div>
 
 <script>
-const log = msg => document.getElementById('log').innerHTML += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+(function () {
+  'use strict';
 
-function run() {
-  const cmd = document.getElementById('cmd').value.toLowerCase();
-  log(`CMD: ${cmd}`);
-  if(cmd.includes('battery')) getBattery();
-  else if(cmd.includes('bright')) setBright(255);
-  else if(cmd.includes('whatsapp')) openWhatsApp();
-  else log("Unknown command. Try 'battery', 'bright', or 'whatsapp'");
-  document.getElementById('cmd').value = '';
-}
+  var MAX_LOG_LINES = 200;
+  var MAX_BRIGHTNESS = 255;
+  var logEl = document.getElementById('log');
+  var cmdEl = document.getElementById('cmd');
 
-// === NATIVE BRIDGE CALLS ===
-function getBattery() {
-  if(typeof Android !== 'undefined') {
-    const info = JSON.parse(Android.getBatteryInfo());
-    log(`Battery: ${info.level}% | Charging: ${info.charging}`);
-  } else log("Native bridge not available (Testing in browser?)");
-}
+  // FIX: textContent use kiya (innerHTML se user input se HTML injection hota tha),
+  // log size limit + auto-scroll
+  function log(msg) {
+    try {
+      var line = '[' + new Date().toLocaleTimeString() + '] ' + String(msg);
+      var lines = (logEl.textContent + '\n' + line).split('\n');
+      if (lines.length > MAX_LOG_LINES) lines = lines.slice(-MAX_LOG_LINES);
+      logEl.textContent = lines.join('\n');
+      logEl.scrollTop = logEl.scrollHeight;
+    } catch (e) {}
+  }
 
-function setBright(level) {
-  if(typeof Android !== 'undefined') {
-    Android.setBrightness(level);
-    log(`Brightness set to ${level}`);
-  } else log("Brightness control requires Android App");
-}
+  // FIX: bridge ya uska method na ho to crash nahi hoga
+  function hasBridge(method) {
+    return typeof window.Android !== 'undefined' && window.Android !== null &&
+           typeof window.Android[method] === 'function';
+  }
 
-function openWhatsApp() {
-  if(typeof Android !== 'undefined') {
-    Android.openApp("com.whatsapp");
-    log("Opening WhatsApp...");
-  } else window.open("https://wa.me", "_blank");
-}
+  // FIX: JSON.parse crash (null / invalid / already-object) se bachne ke liye
+  function safeParse(raw) {
+    if (raw && typeof raw === 'object') return raw;
+    if (typeof raw !== 'string' || !raw.trim()) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
 
-function getInfo() {
-  if(typeof Android !== 'undefined') {
-    const d = JSON.parse(Android.getDeviceInfo());
-    log(`Model: ${d.model} | SDK: ${d.sdk}`);
-  } else log("Device info unavailable");
-}
+  // FIX: har native call try/catch mein
+  function callNative(method) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    try {
+      return { ok: true, value: window.Android[method].apply(window.Android, args) };
+    } catch (e) {
+      log('Native error (' + method + '): ' + (e && e.message ? e.message : e));
+      return { ok: false };
+    }
+  }
+
+  function getBattery() {
+    if (!hasBridge('getBatteryInfo')) return log('Native bridge not available (Testing in browser?)');
+    var r = callNative('getBatteryInfo');
+    if (!r.ok) return;
+    var info = safeParse(r.value);
+    if (!info) return log('Battery data invalid');
+    log('Battery: ' + info.level + '% | Charging: ' + info.charging);
+  }
+
+  function setBright(level) {
+    if (!hasBridge('setBrightness')) return log('Brightness control requires Android App');
+    // FIX: valid range 0-255
+    level = Math.max(0, Math.min(MAX_BRIGHTNESS, Math.round(Number(level) || 0)));
+    var r = callNative('setBrightness', level);
+    if (r.ok) log('Brightness set to ' + level);
+  }
+
+  function openWhatsApp() {
+    if (hasBridge('openApp')) {
+      var r = callNative('openApp', 'com.whatsapp');
+      if (r.ok) log('Opening WhatsApp...');
+      return;
+    }
+    // FIX: window.open WebView mein crash/block hota hai, to same-window navigate
+    try { window.location.href = 'https://wa.me'; } catch (e) { log('Cannot open WhatsApp'); }
+  }
+
+  function getInfo() {
+    if (!hasBridge('getDeviceInfo')) return log('Device info unavailable');
+    var r = callNative('getDeviceInfo');
+    if (!r.ok) return;
+    var d = safeParse(r.value);
+    if (!d) return log('Device info invalid');
+    log('Model: ' + d.model + ' | SDK: ' + d.sdk);
+  }
+
+  function run() {
+    var cmd = (cmdEl.value || '').trim().toLowerCase();
+    if (!cmd) return; // FIX: empty command ignore
+    log('CMD: ' + cmd);
+    if (cmd.indexOf('battery') !== -1) getBattery();
+    else if (cmd.indexOf('bright') !== -1) setBright(MAX_BRIGHTNESS);
+    else if (cmd.indexOf('whatsapp') !== -1) openWhatsApp();
+    else if (cmd.indexOf('info') !== -1) getInfo();
+    else log("Unknown command. Try 'battery', 'bright', 'whatsapp' or 'info'");
+    cmdEl.value = '';
+  }
+
+  // FIX: inline onclick hata ke listeners (CSP-safe), "Max Brightness" ab sach mein max (255)
+  document.getElementById('btn-battery').addEventListener('click', getBattery);
+  document.getElementById('btn-bright').addEventListener('click', function () { setBright(MAX_BRIGHTNESS); });
+  document.getElementById('btn-wa').addEventListener('click', openWhatsApp);
+  document.getElementById('btn-info').addEventListener('click', getInfo);
+  cmdEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
+
+  // FIX: koi bhi uncaught JS error app ko hang/crash na kare
+  window.addEventListener('error', function (e) { log('JS error: ' + e.message); });
+  window.addEventListener('unhandledrejection', function (e) { log('Promise error: ' + (e.reason && e.reason.message ? e.reason.message : e.reason)); });
+})();
 </script>
 </body>
 </html>

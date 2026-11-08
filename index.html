@@ -21,11 +21,11 @@ body{margin:0;font-family:'Courier New',monospace;background:#000;color:#0f0;ove
 .input-row{display:flex;gap:5px;width:100%;max-width:350px;margin-top:15px}
 .in{background:#111;border:1px solid #0f0;color:#0f0;padding:10px;font:13px 'Courier New',monospace;border-radius:4px;flex:1;outline:none}
 .in:focus{box-shadow:0 0 5px #0f0}
-.sm{background:#222;border:1px solid #0f0;color:#0f0;padding:0 15px;font:13px 'Courier New',monospace;border-radius:4px;cursor:pointer}
+.sm{background:#222;border:1px solid #0f0;color:#0f0;padding:8px 15px;font:13px 'Courier New',monospace;border-radius:4px;cursor:pointer}
 .sm:active{background:#0f0;color:#000}
 
 /* --- Status & Logs --- */
-#status-text{margin-top:15px;font-size:13px;opacity:.8;word-break:break-all;padding:0 10px;min-height:20px}
+#status-text{margin-top:15px;font-size:13px;opacity:.8;word-break:break-word;padding:0 10px;min-height:20px}
 #mode-indicator{font-size:11px;color:#ff0;margin-top:5px;text-transform:uppercase;letter-spacing:1px}
 
 /* --- Overlays --- */
@@ -35,15 +35,13 @@ body{margin:0;font-family:'Courier New',monospace;background:#000;color:#0f0;ove
 /* --- Specific Panels --- */
 #camera-feed{width:100%;max-height:50vh;object-fit:cover;border:2px solid #0f0;background:#111;margin-top:20px}
 .log-box{font-size:11px;color:#0f0;overflow-y:auto;width:100%;max-width:400px;height:40vh;border:1px solid #333;padding:10px;background:#0a0a0a;text-align:left;box-sizing:border-box;margin-top:10px;white-space:pre-wrap}
-.bar-container{width:100%;max-width:300px;height:15px;background:#333;margin-top:10px;border:1px solid #0f0;border-radius:2px}
-.bar-fill{width:0%;height:100%;background:red;transition:width .2s;border-radius:2px}
 
 /* --- Brain Panel --- */
 #brain-panel{padding-top:60px;align-items:flex-start}
 #brain-panel > *{width:100%;max-width:400px;box-sizing:border-box}
 .row{display:flex;gap:5px;flex-wrap:wrap;margin:8px 0}
-.tool-item{border:1px solid #0a0;padding:8px;margin:5px 0;text-align:left;font-size:11px;background:#050505;border-radius:3px}
-.code-explainer{border-left:2px solid #ff0;padding-left:8px;margin:5px 0;color:#aaa;font-size:10px}
+.tool-item{border:1px solid #0a0;padding:8px;margin:5px 0;text-align:left;font-size:11px;background:#050505;border-radius:3px;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.tool-item span{word-break:break-word}
 
 /* --- Dynamic Button Styles --- */
 .btn-tool{background:#000;border:1px solid #0f0;color:#0f0;padding:10px;margin:4px 0;width:100%;text-align:left;cursor:pointer;font-family:inherit;font-size:12px;border-radius:3px}
@@ -56,16 +54,16 @@ body{margin:0;font-family:'Courier New',monospace;background:#000;color:#0f0;ove
   <button id="mic-btn" onclick="toggleListening()">🎤</button>
   <p id="status-text">Miya AI v4 Ready... Tap Mic or Type Command</p>
   <div id="mode-indicator">MODE: NORMAL</div>
-  
+
   <div class="input-row">
     <input class="in" id="cmd-input" placeholder="Type command..." onkeydown="if(event.key==='Enter')runTyped()">
     <button class="sm" onclick="runTyped()">▶</button>
   </div>
-  
+
   <!-- Main Controls -->
   <div class="controls" id="controls">
     <button class="ctrl-btn" onclick="executeTool('openCamera')">📷 Camera</button>
-    <button class="ctrl-btn" onclick="executeTool('scanNetwork')">📡 Net Scan</button>
+    <button class="ctrl-btn" onclick="executeTool('scanNetwork')">📡 Net Info</button>
     <button class="ctrl-btn" onclick="executeTool('securityLab')">🛡️ Sec Lab</button>
     <button class="ctrl-btn" onclick="executeTool('phoneStats')">🔋 Phone Info</button>
     <button class="ctrl-btn" onclick="executeTool('openBrain')" style="grid-column:span 2">🧠 Brain / Add Tool</button>
@@ -89,27 +87,27 @@ body{margin:0;font-family:'Courier New',monospace;background:#000;color:#0f0;ove
   </div>
 </div>
 
-<!-- Network Scanner -->
+<!-- Network Info -->
 <div id="network-panel" class="tool-overlay">
   <button class="close-btn" onclick="closeTools()">X</button>
-  <h3>📡 Network Recon</h3>
+  <h3>📡 Network Info</h3>
   <div class="row">
-    <button class="sm" onclick="startNetScan()">Start Scan</button>
+    <button class="sm" onclick="startNetScan()">Check</button>
     <button class="sm" onclick="clearLog('network-log')">Clear</button>
   </div>
-  <div id="network-log" class="log-box">Waiting for scan...</div>
+  <div id="network-log" class="log-box">Check dabao...</div>
 </div>
 
 <!-- Security Lab -->
 <div id="security-panel" class="tool-overlay">
   <button class="close-btn" onclick="closeTools()">X</button>
-  <h3>🛡️ Ethical Hacking Lab</h3>
+  <h3>🛡️ Security Lab (Learning)</h3>
   <div class="row">
-    <button class="sm" onclick="runVulnScan()">Vuln Scan</button>
-    <button class="sm" onclick="runSQLiTest()">SQLi Test</button>
-    <button class="sm" onclick="runXSSTest()">XSS Test</button>
+    <button class="sm" onclick="runVulnScan()">App Self-Audit</button>
+    <button class="sm" onclick="runSQLiTest()">SQLi Samjho</button>
+    <button class="sm" onclick="runXSSTest()">XSS Samjho</button>
   </div>
-  <div id="security-log" class="log-box">Select a test module...</div>
+  <div id="security-log" class="log-box">Ek module chuno...</div>
 </div>
 
 <!-- Phone Stats -->
@@ -127,17 +125,16 @@ body{margin:0;font-family:'Courier New',monospace;background:#000;color:#0f0;ove
 <div id="brain-panel" class="tool-overlay">
   <button class="close-btn" onclick="closeTools()">X</button>
   <h3>🧠 AI Core & Evolution</h3>
-  
-  <input class="in" id="api-key" placeholder="API Key (Optional)">
-  <input class="in" id="brain-input" placeholder="New Tool Name / Code / Request">
-  
+
+  <textarea class="in" id="brain-input" rows="5" placeholder="Tool code likho: function naam(){ ... }"></textarea>
+
   <div class="row">
     <button class="sm" onclick="injectTool()">💉 Inject Tool</button>
     <button class="sm" onclick="explainCode()">📖 Explain Code</button>
     <button class="sm" onclick="setMode()">⚙️ Set Mode</button>
     <button class="sm" onclick="showMemory()">💾 Memory</button>
   </div>
-  
+
   <div id="plan-box" style="display:none;border:1px solid #ff0;color:#ff0;padding:8px;margin:8px 0;font-size:11px;white-space:pre-wrap"></div>
   <div id="brain-log" class="log-box" style="height:150px"></div>
   <div id="tool-list"></div>
@@ -149,21 +146,72 @@ body{margin:0;font-family:'Courier New',monospace;background:#000;color:#0f0;ove
 // ==========================================
 
 const $ = id => document.getElementById(id);
+const HAS_ANDROID = typeof Android !== 'undefined';
 let activeIntervals = [];
 let currentMode = 'NORMAL';
 let isListening = false;
 
-// --- Tool Registry (Dynamic) ---
-let tools = JSON.parse(localStorage.getItem('miya_tools')) || [
-  {name:"Calculator", cmd:"calculate", code:"function calculate(){let r=prompt('Expression:');try{alert(eval(r))}catch(e){alert('Error:'+e.message)}}" },
-  {name:"Notes", cmd:"addnote", code:"function addnote(){let n=prompt('Note:');if(n){localStorage.setItem('note_'+Date.now(),n);speak('Note saved')}}" }
+// --- Built-in tools (code me hi, storage me nahi) ---
+function calculate() {
+  const r = prompt('Expression:');
+  if (!r) return;
+  // Sirf numbers aur + - * / ( ) % . allowed — eval nahi
+  if (!/^[0-9+\-*/().%\s]+$/.test(r)) { alert('Sirf numbers aur + - * / ( ) % allowed'); return; }
+  try {
+    alert(String(Function('"use strict";return (' + r + ')')()));
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+function addnote() {
+  const n = prompt('Note:');
+  if (n) {
+    try { localStorage.setItem('note_' + Date.now(), n); } catch (e) { /* storage full */ }
+    speak('Note saved');
+  }
+}
+
+const BUILTIN_TOOLS = [
+  {name: 'Calculator', cmd: 'calculate', run: calculate},
+  {name: 'Notes', cmd: 'addnote', run: addnote}
 ];
+
+// --- Custom tools (user inject karta hai) — localStorage me {name, cmd, code} ---
+function loadCustomTools() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('miya_tools')) || [];
+    const builtinCmds = BUILTIN_TOOLS.map(t => t.cmd);
+    return raw.filter(t => t && typeof t.code === 'string' && !builtinCmds.includes(t.cmd));
+  } catch (e) {
+    return [];
+  }
+}
+let customTools = loadCustomTools();
+
+function saveCustomTools() {
+  try { localStorage.setItem('miya_tools', JSON.stringify(customTools)); } catch (e) { log('Storage ERR: ' + e.message); }
+}
+
+function toolFunctionName(code) {
+  const m = code.match(/function\s+([A-Za-z_$][\w$]*)/);
+  return m ? m[1] : null;
+}
+
+// Code ko compile karke function wapas deta hai (eval ka scope-bug yahin fix hai)
+function compileTool(code) {
+  const fn = toolFunctionName(code);
+  if (!fn) throw new Error('function naam nahi mila');
+  const f = new Function(code + '\n;return (typeof ' + fn + ' === "function") ? ' + fn + ' : null;')();
+  if (typeof f !== 'function') throw new Error('function ban nahi paya');
+  return f;
+}
 
 // --- Command Map ---
 let commands = {
-  "spy cam": () => executeTool('openCamera'),
   "camera": () => executeTool('openCamera'),
   "scan network": () => executeTool('scanNetwork'),
+  "net info": () => executeTool('scanNetwork'),
   "net scan": () => executeTool('scanNetwork'),
   "security lab": () => executeTool('securityLab'),
   "hack lab": () => executeTool('securityLab'),
@@ -171,8 +219,8 @@ let commands = {
   "battery": () => executeTool('phoneStats'),
   "open brain": () => executeTool('openBrain'),
   "brain": () => executeTool('openBrain'),
-  "search": () => executeTool('webSearch'),
   "web search": () => executeTool('webSearch'),
+  "search": () => executeTool('webSearch'),
   "developer mode": () => setAIMode('DEVELOPER'),
   "expert mode": () => setAIMode('EXPERT'),
   "normal mode": () => setAIMode('NORMAL'),
@@ -180,24 +228,34 @@ let commands = {
 };
 
 // --- Core Functions ---
-function log(msg, panel='brain-log') {
-  const div = $(panel);
-  if(div) {
-    const time = new Date().toLocaleTimeString();
-    div.innerHTML += `<div>[${time}] ${msg}</div>`;
-    div.scrollTop = div.scrollHeight;
-  }
+// textContent se likhte hain (innerHTML nahi) taaki bola/type kiya text kabhi code ki tarah na chale
+function appendLine(panel, text) {
+  const d = $(panel);
+  if (!d) return;
+  d.appendChild(document.createTextNode(text + '\n'));
+  d.scrollTop = d.scrollHeight;
+}
+
+function log(msg, panel) {
+  appendLine(panel || 'brain-log', '[' + new Date().toLocaleTimeString() + '] ' + msg);
+}
+
+function clearLog(id) {
+  const d = $(id);
+  if (d) d.textContent = '';
 }
 
 function speak(text) {
   if ('speechSynthesis' in window) {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'hi-IN'; // Hindi Support
-    u.rate = 1;
-    speechSynthesis.speak(u);
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'hi-IN';
+      u.rate = 1;
+      speechSynthesis.speak(u);
+    } catch (e) { /* TTS available nahi */ }
   }
-  $('status-text').innerText = text;
+  $('status-text').textContent = text;
 }
 
 function show(panelId) {
@@ -205,170 +263,175 @@ function show(panelId) {
   $(panelId).style.display = 'flex';
 }
 
+function stopCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+  }
+  $('camera-feed').srcObject = null;
+}
+
 function closeTools() {
   document.querySelectorAll('.tool-overlay').forEach(p => p.style.display = 'none');
   activeIntervals.forEach(clearInterval);
   activeIntervals = [];
-  // Stop camera if running
-  const video = $('camera-feed');
-  if(video.srcObject) {
-    video.srcObject.getTracks().forEach(t => t.stop());
-    video.srcObject = null;
-  }
+  stopCamera();
 }
 
 // --- Voice Recognition ---
+// Android WebView me webkitSpeechRecognition nahi chalta, isliye app ke native recognizer ka bridge use hota hai
+window.onNativeSpeech = function (text) {
+  isListening = false;
+  $('mic-btn').classList.remove('listening');
+  const t = String(text).toLowerCase();
+  $('cmd-input').value = t;
+  processCommand(t);
+};
+window.onNativeSpeechError = function (why) {
+  isListening = false;
+  $('mic-btn').classList.remove('listening');
+  if (why === 'permission') speak('Mic permission do');
+  else if (why === 'unavailable') speak('Is phone par voice recognition nahi hai');
+  else speak('Sunai nahi diya, dobara bolo');
+};
+
 function toggleListening() {
-  if(!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-    speak("Voice recognition not supported in this browser");
-    return;
-  }
-  
-  if(isListening) {
+  if (isListening) {
     isListening = false;
     $('mic-btn').classList.remove('listening');
     return;
   }
-  
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const recognition = new SpeechRecognition();
+
+  if (HAS_ANDROID && typeof Android.startListening === 'function') {
+    isListening = true;
+    $('mic-btn').classList.add('listening');
+    $('status-text').textContent = 'Listening...';
+    Android.startListening();
+    return;
+  }
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    speak('Voice recognition is browser me supported nahi hai');
+    return;
+  }
+
+  const recognition = new SR();
   recognition.lang = 'hi-IN';
   recognition.continuous = false;
   recognition.interimResults = false;
-  
+
   recognition.onstart = () => {
     isListening = true;
     $('mic-btn').classList.add('listening');
-    $('status-text').innerText = "Listening...";
+    $('status-text').textContent = 'Listening...';
   };
-  
   recognition.onresult = (event) => {
     const transcript = event.results[0][0].transcript.toLowerCase();
     $('cmd-input').value = transcript;
     processCommand(transcript);
   };
-  
   recognition.onend = () => {
     isListening = false;
     $('mic-btn').classList.remove('listening');
   };
-  
   recognition.onerror = (e) => {
     isListening = false;
     $('mic-btn').classList.remove('listening');
-    speak("Voice error: " + e.error);
+    speak('Voice error: ' + e.error);
   };
-  
   recognition.start();
 }
 
 // --- Command Processor ---
 function runTyped() {
   const cmd = $('cmd-input').value.trim().toLowerCase();
-  if(cmd) {
+  if (cmd) {
     $('cmd-input').value = '';
     processCommand(cmd);
   }
 }
 
+function runTool(tool) {
+  try {
+    if (tool.run) { tool.run(); return; }
+    const f = compileTool(tool.code);
+    f();
+  } catch (e) {
+    speak('Error in ' + tool.name + ': ' + e.message);
+    log('ERR: ' + e.message);
+  }
+}
+
 function processCommand(cmd) {
-  log(`CMD: ${cmd}`);
-  
-  // Exact match first
-  if(commands[cmd]) {
-    commands[cmd]();
-    return;
+  log('CMD: ' + cmd);
+
+  // Exact match
+  if (commands[cmd]) { commands[cmd](); return; }
+
+  // Partial match
+  for (const key in commands) {
+    if (cmd.includes(key)) { commands[key](); return; }
   }
-  
-  // Partial match for dynamic tools
-  for(let key in commands) {
-    if(cmd.includes(key)) {
-      commands[key]();
+
+  // Tools (built-in + custom)
+  const all = BUILTIN_TOOLS.concat(customTools);
+  for (const tool of all) {
+    if (cmd.includes(tool.cmd.toLowerCase()) || cmd.includes(tool.name.toLowerCase())) {
+      runTool(tool);
       return;
     }
   }
-  
-  // Check dynamic tools
-  for(let tool of tools) {
-    if(cmd.includes(tool.cmd.toLowerCase())) {
-      try {
-        eval(tool.code);
-        // Execute the function named after the tool
-        const funcName = tool.cmd.replace(/\s+/g, '');
-        if(typeof window[funcName] === 'function') window[funcName]();
-        else speak(`Executing ${tool.name}`);
-      } catch(e) {
-        speak(`Error in ${tool.name}: ${e.message}`);
-        log(`ERR: ${e.message}`);
-      }
-      return;
-    }
-  }
-  
-  // AI Response Fallback
+
   aiRespond(cmd);
 }
 
 function aiRespond(cmd) {
   const responses = {
     'hello': 'Namaste! Main Miya hoon. Aap kaise hain?',
-    'kaun ho': 'Main Miya AI Assistant hoon. Aapka personal security aur coding companion.',
-    'help': 'Available commands: Camera, Scan Network, Security Lab, Phone Info, Brain, Search. Ya koi naya tool add karne ke liye Brain panel kholein.',
+    'kaun ho': 'Main Miya AI Assistant hoon. Aapka coding aur automation companion.',
+    'help': 'Available commands: Camera, Net Info, Security Lab, Phone Info, Brain, Search. Ya koi naya tool add karne ke liye Brain panel kholein.',
     'thank': 'Aapka swagat hai! Kuch aur chahiye?'
   };
-  
-  let found = false;
-  for(let key in responses) {
-    if(cmd.includes(key)) {
-      speak(responses[key]);
-      found = true;
-      break;
-    }
+
+  for (const key in responses) {
+    if (cmd.includes(key)) { speak(responses[key]); return; }
   }
-  
-  if(!found) {
-    if(currentMode === 'DEVELOPER') {
-      speak(`Command "${cmd}" recognized. No direct handler found. Try adding it via Brain panel.`);
-    } else {
-      speak(`Sorry, mujhe samajh nahi aaya. "Help" type karein ya Brain panel mein naya tool add karein.`);
-    }
+
+  if (currentMode === 'DEVELOPER') {
+    speak('Command "' + cmd + '" recognized. Koi handler nahi mila. Brain panel se add karo.');
+  } else {
+    speak('Sorry, mujhe samajh nahi aaya. "Help" type karein ya Brain panel mein naya tool add karein.');
   }
 }
 
 // --- Mode System ---
+const MODE_COLORS = {DEVELOPER: '#0ff', EXPERT: '#f0f'};
+
 function setAIMode(mode) {
   currentMode = mode;
-  $('mode-indicator').innerText = `MODE: ${mode}`;
-  speak(`${mode} mode activated`);
-  log(`Mode changed to ${mode}`);
-  
-  // Mode-specific behaviors
-  if(mode === 'DEVELOPER') {
-    document.body.style.color = '#0ff';
-    document.documentElement.style.setProperty('--accent', '#0ff');
-  } else if(mode === 'EXPERT') {
-    document.body.style.color = '#f0f';
-  } else {
-    document.body.style.color = '#0f0';
-  }
+  $('mode-indicator').textContent = 'MODE: ' + mode;
+  speak(mode + ' mode activated');
+  log('Mode changed to ' + mode);
+  document.body.style.color = MODE_COLORS[mode] || '#0f0';
 }
 
 function setMode() {
   const modes = ['NORMAL', 'FRIEND', 'PROFESSIONAL', 'DEVELOPER', 'EXPERT', 'RESEARCH', 'STUDY', 'CREATIVE'];
   const idx = modes.indexOf(currentMode);
-  const next = modes[(idx + 1) % modes.length];
-  setAIMode(next);
+  setAIMode(modes[(idx + 1) % modes.length]);
 }
 
 // --- Tool Execution Router ---
 function executeTool(toolName) {
-  switch(toolName) {
+  switch (toolName) {
     case 'openCamera':
       show('camera-panel');
       startCamera();
       break;
     case 'scanNetwork':
       show('network-panel');
+      startNetScan();
       break;
     case 'securityLab':
       show('security-panel');
@@ -381,21 +444,32 @@ function executeTool(toolName) {
       show('brain-panel');
       renderToolList();
       break;
-    case 'webSearch':
+    case 'webSearch': {
       const q = prompt('Search query:');
-      if(q) window.open(`https://www.google.com/search?q=${encodeURIComponent(q)}`, '_blank');
+      if (q) openLink('https://www.google.com/search?q=' + encodeURIComponent(q));
       break;
+    }
     default:
-      speak(`Tool ${toolName} not found`);
+      speak('Tool ' + toolName + ' not found');
   }
+}
+
+// window.open WebView me nahi chalta, isliye native bridge se kholte hain
+function openLink(url) {
+  if (HAS_ANDROID && typeof Android.openUrl === 'function') Android.openUrl(url);
+  else window.open(url, '_blank');
 }
 
 // --- Camera Module ---
 let cameraStream = null;
+
 function startCamera() {
   const video = $('camera-feed');
-  if(cameraStream) return;
-  
+  if (cameraStream) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    speak('Camera is page me available nahi hai');
+    return;
+  }
   navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}})
     .then(stream => {
       cameraStream = stream;
@@ -409,10 +483,8 @@ function startCamera() {
 }
 
 function toggleCamera() {
-  if(cameraStream) {
-    cameraStream.getTracks().forEach(t => t.stop());
-    cameraStream = null;
-    $('camera-feed').srcObject = null;
+  if (cameraStream) {
+    stopCamera();
     log('Camera stopped');
   } else {
     startCamera();
@@ -421,138 +493,298 @@ function toggleCamera() {
 
 function captureImage() {
   const video = $('camera-feed');
-  if(!video.srcObject) {speak('Camera not running');return;}
+  if (!video.srcObject || !video.videoWidth) { speak('Camera chalu nahi hai'); return; }
   const canvas = document.createElement('canvas');
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
+  const dataUrl = canvas.toDataURL('image/png');
+
+  if (HAS_ANDROID && typeof Android.saveImage === 'function') {
+    const path = Android.saveImage(dataUrl);
+    if (path) { speak('Image save ho gayi'); log('Saved: ' + path); }
+    else speak('Image save nahi ho payi');
+    return;
+  }
   const link = document.createElement('a');
-  link.download = `miya-capture-${Date.now()}.png`;
-  link.href = canvas.toDataURL();
+  link.download = 'miya-capture-' + Date.now() + '.png';
+  link.href = dataUrl;
   link.click();
   speak('Image captured');
 }
 
-// --- Network Scanner (Simulated) ---
+// --- Network Info (asli jaankari, koi nakli scan nahi) ---
 function startNetScan() {
-  const logDiv = $('network-log');
-  logDiv.innerHTML = 'Initializing scanner...\n';
-  
-  const targets = ['192.168.1.1', '192.168.1.10', '192.168.1.20', '192.168.1.50', '10.0.0.1'];
-  const ports = [22, 80, 443, 8080, 3306];
-  let i = 0;
-  
-  const interval = setInterval(() => {
-    if(i >= targets.length) {
-      clearInterval(interval);
-      logDiv.innerHTML += '\n✅ Scan Complete. Found 3 active hosts.';
-      speak('Network scan complete');
-      return;
-    }
-    const openPorts = ports.filter(() => Math.random() > 0.6);
-    logDiv.innerHTML += `[${targets[i]}] Ports: ${openPorts.join(', ') || 'None'}\n`;
-    logDiv.scrollTop = logDiv.scrollHeight;
-    i++;
-  }, 800);
-  activeIntervals.push(interval);
+  const id = 'network-log';
+  clearLog(id);
+  appendLine(id, 'Online: ' + (navigator.onLine ? 'Yes' : 'No'));
+  const c = navigator.connection;
+  if (c) {
+    appendLine(id, 'Type: ' + (c.effectiveType || 'Unknown'));
+    appendLine(id, 'Downlink: ' + (c.downlink != null ? c.downlink + ' Mbps' : '?'));
+    appendLine(id, 'RTT: ' + (c.rtt != null ? c.rtt + ' ms' : '?'));
+    appendLine(id, 'Data saver: ' + (c.saveData ? 'On' : 'Off'));
+  } else {
+    appendLine(id, 'Connection details is WebView me available nahi.');
+  }
+  appendLine(id, '\nNote: ye sirf aapke phone ke connection ki info hai. Dusre devices ya ports ka scan nahi hota.');
+  speak('Network info ready');
 }
 
-// --- Security Lab (Simulated) ---
+// --- Security Lab (seekhne ke liye; koi nakli "pass/fail" nahi) ---
 function runVulnScan() {
-  const log = $('security-log');
-  log.innerHTML = '🔍 Starting Vulnerability Assessment...\n';
-  const checks = ['SSL Certificate', 'HTTP Headers', 'CORS Policy', 'X-Frame-Options', 'Content-Security-Policy'];
-  let i = 0;
-  const intv = setInterval(() => {
-    if(i >= checks.length) {
-      clearInterval(intv);
-      log.innerHTML += '\n✅ Assessment Done. 2 Medium risks found.';
-      speak('Vulnerability scan complete');
-      return;
-    }
-    const status = Math.random() > 0.5 ? '✅ PASS' : '⚠️ WARN';
-    log.innerHTML += `${checks[i]}: ${status}\n`;
-    log.scrollTop = log.scrollHeight;
-    i++;
-  }, 600);
-  activeIntervals.push(intv);
+  const id = 'security-log';
+  clearLog(id);
+  appendLine(id, '🔍 Miya app ka self-audit (asli checks):\n');
+  appendLine(id, 'Secure origin (https): ' + (location.protocol === 'https:' ? '✅' : '⚠️ ' + location.protocol));
+  appendLine(id, 'Android bridge maujood: ' + (HAS_ANDROID ? '⚠️ haan (sirf apne local page par rakho)' : '✅ nahi'));
+  appendLine(id, 'Custom tools (code chalane wale): ' + customTools.length + (customTools.length ? ' ⚠️ inka code ek baar dekh lo' : ' ✅'));
+  let notes = 0;
+  try { notes = Object.keys(localStorage).filter(k => k.startsWith('note_')).length; } catch (e) { /* ignore */ }
+  appendLine(id, 'Saved notes (localStorage, encrypted nahi): ' + notes + (notes ? ' ⚠️ password/secret yahan mat rakho' : ' ✅'));
+  appendLine(id, 'Inline eval/Function: sirf Brain panel ke tools me, confirm ke baad.');
+  appendLine(id, '\nTip: unknown source ka tool kabhi inject mat karo.');
+  speak('Self audit complete');
 }
 
 function runSQLiTest() {
-  $('security-log').innerHTML = '🧪 Testing SQL Injection vectors...\nPayload: \' OR 1=1 --\nResult: Filtered ✅\nPayload: UNION SELECT...\nResult: Blocked ✅\n\n✅ Application appears resistant to basic SQLi.';
-  speak('SQL Injection test passed');
+  const id = 'security-log';
+  clearLog(id);
+  appendLine(id, '📖 SQL Injection — sirf samajhne ke liye (koi test nahi chalta)\n');
+  appendLine(id, 'Kya hai: jab user ka input seedha SQL query me jod diya jaye, to input query ka hissa ban sakta hai.');
+  appendLine(id, '\nBachav:');
+  appendLine(id, '• Parameterized / prepared queries use karo');
+  appendLine(id, '• Input validate karo (type, length)');
+  appendLine(id, '• Database user ko kam se kam permissions do');
+  appendLine(id, '• Error messages user ko mat dikhao');
+  speak('SQL injection ka concept');
 }
 
 function runXSSTest() {
-  $('security-log').innerHTML = '🧪 Testing XSS vectors...\nPayload: <script>alert(1)</script>\nResult: Escaped ✅\nPayload: javascript:void(0)\nResult: Sanitized ✅\n\n✅ XSS protection active.';
-  speak('XSS test passed');
+  const id = 'security-log';
+  clearLog(id);
+  appendLine(id, '📖 XSS — sirf samajhne ke liye (koi test nahi chalta)\n');
+  appendLine(id, 'Kya hai: jab user ka text bina escape kiye page me dikhaya jaye aur browser use code samajh le.');
+  appendLine(id, '\nBachav:');
+  appendLine(id, '• Text dikhane ke liye textContent use karo, innerHTML nahi');
+  appendLine(id, '• Output escape karo');
+  appendLine(id, '• Content-Security-Policy lagao');
+  appendLine(id, '• Cookies par HttpOnly rakho');
+  speak('XSS ka concept');
 }
 
 // --- Phone Intelligence ---
 function refreshPhoneStats() {
-  const stats = $('phone-stats');
-  let info = '📱 Device Information\n';
-  info += `OS: ${navigator.platform}\n`;
-  info += `Language: ${navigator.language}\n`;
-  info += `Cores: ${navigator.hardwareConcurrency || 'N/A'}\n`;
-  info += `Memory: ${(navigator.deviceMemory || 'N/A')} GB\n`;
-  info += `Online: ${navigator.onLine ? 'Yes' : 'No'}\n`;
-  info += `Screen: ${window.screen.width}x${window.screen.height}\n`;
-  info += `Battery: Checking...\n`;
-  
-  stats.innerHTML = info;
-  
-  if('getBattery' in navigator) {
+  const id = 'phone-stats';
+  clearLog(id);
+  appendLine(id, '📱 Device Information');
+  appendLine(id, 'OS: ' + (navigator.platform || 'N/A'));
+  appendLine(id, 'Language: ' + navigator.language);
+  appendLine(id, 'Cores: ' + (navigator.hardwareConcurrency || 'N/A'));
+  appendLine(id, 'Memory: ' + (navigator.deviceMemory || 'N/A') + ' GB');
+  appendLine(id, 'Online: ' + (navigator.onLine ? 'Yes' : 'No'));
+  appendLine(id, 'Screen: ' + window.screen.width + 'x' + window.screen.height);
+
+  if (HAS_ANDROID) {
+    try {
+      const d = JSON.parse(Android.getDeviceInfo());
+      if (d.model) appendLine(id, 'Model: ' + d.model + ' (SDK ' + d.sdk + ')');
+      const b = JSON.parse(Android.getBatteryInfo());
+      if (b.level != null) {
+        appendLine(id, 'Battery: ' + b.level + '%' + (b.charging ? ' ⚡ charging' : ''));
+      }
+    } catch (e) {
+      appendLine(id, 'Battery: unavailable');
+    }
+  } else if ('getBattery' in navigator) {
     navigator.getBattery().then(b => {
-      const level = Math.round(b.level * 100);
-      stats.innerHTML += `Level: ${level}% ${b.charging ? '⚡' : ''}\n`;
-      stats.innerHTML += `Charging: ${b.charging ? 'Yes' : 'No'}\n`;
+      appendLine(id, 'Battery: ' + Math.round(b.level * 100) + '%' + (b.charging ? ' ⚡ charging' : ''));
     });
+  } else {
+    appendLine(id, 'Battery: unavailable');
   }
-  
-  // Network info
-  if('connection' in navigator) {
-    const conn = navigator.connection;
-    stats.innerHTML += `Net Type: ${conn.effectiveType || 'Unknown'}\n`;
-    stats.innerHTML += `Downlink: ${conn.downlink || '?'} Mbps\n`;
+
+  const conn = navigator.connection;
+  if (conn) {
+    appendLine(id, 'Net Type: ' + (conn.effectiveType || 'Unknown'));
+    appendLine(id, 'Downlink: ' + (conn.downlink || '?') + ' Mbps');
   }
 }
 
 function termuxCommand(cmd) {
-  // For Termux users: This opens termux with the command
-  // In a real app, you'd use Termux:API or WebSocket bridge
-  speak(`Sending to Termux: ${cmd}`);
-  log(`TERMUX: ${cmd}`);
-  // Attempt to open termux (works if installed)
-  try {
-    window.location.href = `termux://${cmd}`;
-  } catch(e) {
-    log('Termux not detected');
-  }
+  // Termux commands floating bubble ke password-gated Setup mode se chalte hain (MiyaService)
+  const msg = 'Termux command bubble se chalao: bolo "setup mode", phir "termux ' + cmd + '"';
+  speak(msg);
+  log(msg);
 }
 
 // --- BRAIN: Dynamic Tool Injection System ---
 function injectTool() {
   const input = $('brain-input').value.trim();
-  if(!input) {speak('Please enter tool name or code');return;}
-  
-  // Check if it's a full code block
-  if(input.includes('function') || input.includes('{')) {
-    // Extract function name
-    const match = input.match(/function\s+(\w+)/);
-    if(match) {
-      const funcName = match[1];
-      const toolName = funcName.replace(/([A-Z])/g, ' $1').trim();
-      
-      // Save tool
-      tools.push({name: toolName, cmd: funcName.toLowerCase(), code: input});
-      localStorage.setItem('miya_tools', JSON.stringify(tools));
-      
-      // Execute immediately to test
-      try {
-        eval(input);
-        log(`✅ Tool "${toolName}" injected and tested successfully`);
-        speak(`${toolName} tool added successfully`);
-        
-        // Auto-generate explanation
-        
+  if (!input) { speak('Pehle tool ka code likho'); return; }
+
+  const fn = toolFunctionName(input);
+  if (!fn) {
+    speak('Code me function naam(){...} hona chahiye');
+    log('Format: function mytool(){ ... }');
+    return;
+  }
+
+  // Compile karke check karo (abhi chalata nahi)
+  try {
+    compileTool(input);
+  } catch (e) {
+    speak('Code me galti hai: ' + e.message);
+    log('Compile ERR: ' + e.message);
+    return;
+  }
+
+  // User ko dikhao ki kya chalne wala hai
+  const risks = scanRisks(input);
+  const warn = risks.length ? '\n\n⚠️ Ye cheezein use karta hai: ' + risks.join(', ') : '';
+  if (!confirm('Ye code tool ki tarah save hoga aur chalega:\n\n' + input.slice(0, 500) + warn + '\n\nAdd karu?')) {
+    log('Inject cancel kiya');
+    return;
+  }
+
+  const toolName = fn.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim();
+  const cmd = fn.toLowerCase();
+  customTools = customTools.filter(t => t.cmd !== cmd); // same naam ho to replace
+  customTools.push({name: toolName, cmd: cmd, code: input});
+  saveCustomTools();
+
+  log('✅ Tool "' + toolName + '" add hua. Bolo: "' + cmd + '"');
+  speak(toolName + ' tool added');
+  $('brain-input').value = '';
+  renderToolList();
+  renderCustomControls();
+}
+
+// Code me risky cheezein dhoondta hai (sirf jaankari ke liye)
+const RISK_PATTERNS = [
+  [/\beval\s*\(/, 'eval()', 'string ko code ki tarah chalata hai'],
+  [/\bnew\s+Function\b/, 'new Function', 'string se naya code banata hai'],
+  [/\bfetch\s*\(|XMLHttpRequest|WebSocket/, 'network request', 'internet par data bhej/le sakta hai'],
+  [/\bAndroid\./, 'Android bridge', 'phone ke features (brightness, app kholna, files) chala sakta hai'],
+  [/localStorage|sessionStorage|indexedDB/, 'storage', 'saved data padh/badal sakta hai'],
+  [/document\.cookie/, 'cookies', 'cookies padh sakta hai'],
+  [/innerHTML|outerHTML|document\.write/, 'HTML injection', 'XSS ka risk'],
+  [/window\.open|location\.(href|assign|replace)/, 'navigation', 'dusra page khol sakta hai'],
+  [/getUserMedia/, 'camera/mic', 'camera ya mic use kar sakta hai']
+];
+
+function scanRisks(code) {
+  return RISK_PATTERNS.filter(p => p[0].test(code)).map(p => p[1]);
+}
+
+function explainCode() {
+  const code = $('brain-input').value.trim();
+  const box = $('plan-box');
+  if (!code) { speak('Pehle code likho'); return; }
+
+  const lines = code.split('\n').length;
+  const fns = [...code.matchAll(/function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)/g)]
+    .map(m => m[1] + '(' + m[2].trim() + ')');
+  const prompts = (code.match(/\bprompt\s*\(/g) || []).length;
+  const alerts = (code.match(/\balert\s*\(/g) || []).length;
+  const speaks = (code.match(/\bspeak\s*\(/g) || []).length;
+
+  let out = '📖 Code ka saar\n';
+  out += '• Lines: ' + lines + '\n';
+  out += '• Functions: ' + (fns.length ? fns.join(', ') : 'koi nahi') + '\n';
+  out += '• User se input maangta hai: ' + prompts + ' baar\n';
+  out += '• Alert dikhata hai: ' + alerts + ' baar\n';
+  out += '• Bolkar batata hai: ' + speaks + ' baar\n';
+
+  const rs = RISK_PATTERNS.filter(p => p[0].test(code));
+  if (rs.length) {
+    out += '\n⚠️ Dhyan dene wali cheezein:\n';
+    rs.forEach(p => { out += '• ' + p[1] + ' — ' + p[2] + '\n'; });
+  } else {
+    out += '\n✅ Koi risky pattern nahi mila.';
+  }
+
+  box.style.display = 'block';
+  box.textContent = out;
+  log('Code explain kiya (' + lines + ' lines)');
+}
+
+function showMemory() {
+  const box = $('plan-box');
+  let notes = [];
+  try {
+    notes = Object.keys(localStorage).filter(k => k.startsWith('note_')).sort();
+  } catch (e) { /* ignore */ }
+
+  let out = '💾 Memory\n';
+  out += '• Built-in tools: ' + BUILTIN_TOOLS.map(t => t.name).join(', ') + '\n';
+  out += '• Custom tools: ' + (customTools.length ? customTools.map(t => t.name).join(', ') : 'koi nahi') + '\n';
+  out += '• Saved notes: ' + notes.length + '\n';
+  notes.slice(-5).forEach(k => {
+    let v = '';
+    try { v = localStorage.getItem(k) || ''; } catch (e) { /* ignore */ }
+    out += '   – ' + v.slice(0, 60) + '\n';
+  });
+
+  box.style.display = 'block';
+  box.textContent = out;
+}
+
+function deleteTool(cmd) {
+  customTools = customTools.filter(t => t.cmd !== cmd);
+  saveCustomTools();
+  renderToolList();
+  renderCustomControls();
+  log('Tool hataya: ' + cmd);
+}
+
+function renderToolList() {
+  const list = $('tool-list');
+  list.textContent = '';
+  const all = BUILTIN_TOOLS.map(t => ({t: t, builtin: true})).concat(customTools.map(t => ({t: t, builtin: false})));
+  all.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'tool-item';
+
+    const label = document.createElement('span');
+    label.textContent = item.t.name + '  →  "' + item.t.cmd + '"' + (item.builtin ? '  (built-in)' : '');
+    row.appendChild(label);
+
+    const btns = document.createElement('div');
+    const run = document.createElement('button');
+    run.className = 'sm';
+    run.textContent = '▶';
+    run.onclick = () => runTool(item.t);
+    btns.appendChild(run);
+
+    if (!item.builtin) {
+      const del = document.createElement('button');
+      del.className = 'sm';
+      del.textContent = '🗑';
+      del.onclick = () => deleteTool(item.t.cmd);
+      btns.appendChild(del);
+    }
+    row.appendChild(btns);
+    list.appendChild(row);
+  });
+}
+
+// Main screen par custom tools ke buttons
+function renderCustomControls() {
+  const box = $('custom-controls');
+  box.textContent = '';
+  customTools.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'btn-tool';
+    b.textContent = '🔧 ' + t.name;
+    b.onclick = () => runTool(t);
+    box.appendChild(b);
+  });
+}
+
+// --- Init ---
+renderCustomControls();
+</script>
+</body>
+</html>
+

@@ -27,8 +27,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Foreground (microphone) service: "Miya" wake word sunti hai aur baaki bola hua
- * text MainActivity ko broadcast karti hai (jo use WebView ke JS tak pahunchati hai).
+ * Foreground (microphone) service: "Miya" wake word sunti hai.
+ *  - "Miya agent ..." / "Miya termux ..." -> MiyaAgent sambhalta hai (phone agent / Termux).
+ *  - baaki bola hua text MainActivity ko broadcast hota hai (jo use WebView ke JS tak pahunchati hai).
+ *  - Agent ne "haan ya nahi" poochha ho to wake word ke bina bhi jawab sun leti hai.
  */
 public class MiyaService extends Service {
 
@@ -82,6 +84,7 @@ public class MiyaService extends Service {
             return START_NOT_STICKY;
         }
 
+        MiyaAgent.init(this); // bolne (TTS) ke liye
         scheduleListen(0);
 
         // START_NOT_STICKY: process kill ke baad background se mic-FGS dobara start karna
@@ -98,6 +101,7 @@ public class MiyaService extends Service {
     @Override
     public void onDestroy() {
         destroyed = true;
+        MiyaAgent.onServiceStopped();
         handler.removeCallbacksAndMessages(null);
         if (recognizer != null) {
             try { recognizer.destroy(); } catch (Exception ignored) {}
@@ -142,7 +146,6 @@ public class MiyaService extends Service {
                     .setPriority(NotificationCompat.PRIORITY_LOW)
                     .build();
 
-            // FIX: pehle sirf API 26+ pe startForeground hota tha, aur type kabhi pass nahi hota tha.
             // FOREGROUND_SERVICE_TYPE_MICROPHONE API 30+ mein hai.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
@@ -167,7 +170,11 @@ public class MiyaService extends Service {
     }
 
     private final Runnable listenRunnable = new Runnable() {
-        @Override public void run() { startListening(); }
+        @Override public void run() {
+            // Miya bol rahi ho to mic band rakho, warna apni hi awaaz sunegi
+            if (MiyaAgent.isSpeaking()) { scheduleListen(400); return; }
+            startListening();
+        }
     };
 
     private void startListening() {
@@ -236,10 +243,20 @@ public class MiyaService extends Service {
             if (list != null) {
                 for (String text : list) {
                     if (text == null) continue;
+
+                    // Agent "haan ya nahi" ka intezaar kar raha hai: wake word ke bina bhi suno
+                    if (MiyaAgent.isAwaitingConfirm()) {
+                        MiyaAgent.onConfirmText(text);
+                        break;
+                    }
+
                     Matcher m = WAKE.matcher(text);
                     if (m.find()) {
                         String command = text.substring(m.end()).trim();
-                        broadcastWake(command);
+                        // agent / termux commands yahin sambhal liye jaate hain, baaki JS ko
+                        if (!MiyaAgent.handleVoice(MiyaService.this, command)) {
+                            broadcastWake(command);
+                        }
                         break;
                     }
                 }

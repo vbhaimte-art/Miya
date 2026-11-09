@@ -14,7 +14,7 @@ on:
 permissions:
   contents: write
 
-# FIX: ek saath do build chalne se tag/release clash na ho
+# ek saath do build chalne se tag/release clash na ho
 concurrency:
   group: miya-build-${{ github.ref }}
   cancel-in-progress: true
@@ -25,6 +25,22 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      # Pehle jaisi galti (scripts/miya-setup.txt me Java paste ho jana) ab turant saaf message ke saath pakdi jaati hai
+      - name: Check source files
+        run: |
+          fail() { echo "❌ $1"; exit 1; }
+          head -n 1 scripts/miya-setup.txt | grep -q '^#!/bin/bash' \
+            || fail "scripts/miya-setup.txt bash script nahi hai (pehli line #!/bin/bash honi chahiye)"
+          head -n 1 scripts/miya-voice.txt | grep -q '^package com.miya.app;' \
+            || fail "scripts/miya-voice.txt MiyaService.java hona chahiye (pehli line: package com.miya.app;)"
+          grep -q 'static final String APP_KEY' scripts/miya-voice.txt \
+            || fail "scripts/miya-voice.txt me 'static final String APP_KEY' wali line nahi hai"
+          [ -f security/SecurityModule.java ] \
+            || fail "security/SecurityModule.java nahi mili (MainActivity ko ye chahiye)"
+          [ -f assets/index.html ] \
+            || fail "assets/index.html nahi mili"
+          echo "✅ Source files theek hain"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -37,7 +53,7 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      # FIX: apt-get update hata diya (unzip/wget runner pe already hain, update kabhi-kabhi fail hota hai)
+      # apt-get update hata diya (unzip/wget runner pe already hain, update kabhi-kabhi fail hota hai)
       - name: Install Android SDK
         run: |
           ANDROID_SDK_ROOT=$HOME/android-sdk
@@ -56,24 +72,14 @@ jobs:
 
       - name: Install Voice Service
         run: |
-          mkdir -p miya-app/app/src/main/java/com/miya/app
-          if [ -f scripts/miya-voice.txt ]; then
-            cp scripts/miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
-            echo "✅ Voice service installed"
-          else
-            echo "⚠️ miya-voice.txt missing — placeholder service use hoga"
-          fi
+          cp scripts/miya-voice.txt miya-app/app/src/main/java/com/miya/app/MiyaService.java
+          echo "✅ Voice service installed"
 
-      # FIX: *.vrm na ho to loop ka last status 1 hota tha aur step fail ho jata tha
       - name: Install Web UI + VRM
         run: |
           mkdir -p miya-app/app/src/main/assets
-          if [ -f assets/index.html ]; then
-            cp assets/index.html miya-app/app/src/main/assets/index.html
-            echo "✅ Web UI installed"
-          else
-            echo "⚠️ assets/index.html missing — placeholder use hoga"
-          fi
+          cp assets/index.html miya-app/app/src/main/assets/index.html
+          echo "✅ Web UI installed"
           shopt -s nullglob
           for f in *.vrm; do
             cp -f "$f" miya-app/app/src/main/assets/
@@ -82,21 +88,13 @@ jobs:
 
       - name: Inject Security Module
         run: |
-          if [ -f security/SecurityModule.java ]; then
-            cp security/SecurityModule.java miya-app/app/src/main/java/com/miya/app/SecurityModule.java
-            echo "✅ SecurityModule injected"
-          else
-            echo "ℹ️ SecurityModule.java not found — skipping"
-          fi
+          cp security/SecurityModule.java miya-app/app/src/main/java/com/miya/app/SecurityModule.java
+          echo "✅ SecurityModule injected"
 
-      # NEW: SecurityModule ko BuildConfig.EXPECTED_SIG_SHA256, buildConfig feature
-      # aur dependencies chahiye. Na hon to "Build Debug APK" compile error deta hai.
-      - name: Patch Gradle for SecurityModule
+      # MainActivity ko BuildConfig fields (INTEGRITY_BASE_URL, CLOUD_PROJECT_NUMBER) aur
+      # biometric / play-integrity dependencies chahiye, isliye ye patch hamesha chalta hai.
+      - name: Patch Gradle
         run: |
-          if [ ! -f miya-app/app/src/main/java/com/miya/app/SecurityModule.java ]; then
-            echo "ℹ️ SecurityModule nahi hai — gradle patch skip"
-            exit 0
-          fi
           python3 - <<'PY'
           import os, re, sys
           g = 'miya-app/app/build.gradle'
@@ -137,7 +135,7 @@ jobs:
           print('✅ Gradle patched: ' + path)
           PY
 
-      # FIX: sed token mein | & \ " aaye to toot jata tha (aur Java string bhi). Ab python se safe replace.
+      # sed token mein | & \ " aaye to toot jata tha. Ab python se safe replace.
       - name: Insert API Token
         env:
           MIYA_TOKEN: ${{ secrets.MIYA_TOKEN }}
@@ -147,21 +145,18 @@ jobs:
           f = 'miya-app/app/src/main/java/com/miya/app/MiyaService.java'
           tok = os.environ.get('MIYA_TOKEN', '')
           if not tok:
-              print('⚠️ MIYA_TOKEN secret khali hai — placeholder chal raha hai'); sys.exit(0)
-          if not os.path.exists(f):
-              print('⚠️ MiyaService.java nahi mila'); sys.exit(0)
+              print('⚠️ MIYA_TOKEN secret khali hai — AI wale features (agent) 401 denge'); sys.exit(0)
           s = open(f, encoding='utf-8').read()
           esc = tok.replace('\\', '\\\\').replace('"', '\\"')
           new, n = re.subn(r'static final String APP_KEY\s*=\s*.*?;',
                            lambda m: 'static final String APP_KEY = "' + esc + '";', s, count=1)
           if n == 0:
-              print('⚠️ APP_KEY placeholder not found'); sys.exit(0)
+              print('❌ APP_KEY line nahi mili'); sys.exit(1)
           open(f, 'w', encoding='utf-8').write(new)
           print('✅ Token injected')
           PY
 
-      # NEW: manifest mein FGS type + permissions khud lagao (pehle ye patch hata diya gaya tha,
-      # isliye Validate step fail hota tha). Pehle se hon to dobara nahi lagta.
+      # Manifest me FGS type + permissions + <queries> khud lagao. Pehle se hon to dobara nahi lagta.
       - name: Patch Manifest
         run: |
           python3 - <<'PY'
@@ -172,8 +167,6 @@ jobs:
           except FileNotFoundError:
               print('❌ AndroidManifest.xml nahi bana (scripts/miya-setup.txt check karo)'); sys.exit(1)
 
-          # MainActivity ye permissions runtime pe maangti hai; manifest mein na hon to
-          # silently deny ho jati hain. POST_NOTIFICATIONS Android 13+.
           perms = ['android.permission.FOREGROUND_SERVICE',
                    'android.permission.FOREGROUND_SERVICE_MICROPHONE',
                    'android.permission.RECORD_AUDIO',
@@ -186,12 +179,10 @@ jobs:
           if not m:
               print('❌ <application> tag nahi mila'); sys.exit(1)
 
-          # Android 11+: openApp("com.whatsapp") aur root-package check ke liye <queries> zaroori
           pkgs = ['com.whatsapp', 'com.topjohnwu.magisk', 'eu.chainfire.supersu',
                   'com.koushikdutta.superuser', 'com.noshufou.android.su']
           q = ''.join('        <package android:name="%s"/>\n' % x
                       for x in pkgs if '"%s"' % x not in s)
-          # SpeechRecognizer Android 11+ pe RecognitionService dhoondhne ke liye ye maangta hai
           if 'android.speech.RecognitionService' not in s:
               q += ('        <intent>\n'
                     '            <action android:name="android.speech.RecognitionService"/>\n'
@@ -228,6 +219,7 @@ jobs:
           grep -q 'foregroundServiceType="microphone"' "$M" || { echo "❌ FGS type missing"; exit 1; }
           grep -q 'FOREGROUND_SERVICE_MICROPHONE' "$M" || { echo "❌ FGS mic permission missing"; exit 1; }
           grep -q 'RECORD_AUDIO' "$M" || { echo "❌ RECORD_AUDIO missing"; exit 1; }
+          grep -q 'MiyaAccessibilityService' "$M" || { echo "❌ Accessibility service missing"; exit 1; }
           echo "✅ Manifest OK"
 
       - name: Build Debug APK
@@ -235,7 +227,7 @@ jobs:
           cd miya-app
           gradle assembleDebug --no-daemon --stacktrace
 
-      # FIX: comment mein "logs" tha par upload mein sirf APK tha. Ab build reports bhi.
+      # Build fail ho to bhi reports upload hon, taaki error dekh sako
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -246,7 +238,6 @@ jobs:
             miya-app/app/build/reports/
           if-no-files-found: ignore
 
-      # FIX: APK ka naam app-debug.apk hardcoded tha
       - name: Rename APK
         run: |
           APK=$(ls miya-app/app/build/outputs/apk/debug/*.apk | head -n 1)
@@ -258,4 +249,4 @@ jobs:
           tag_name: miya-${{ github.run_number }}
           name: Miya Build #${{ github.run_number }}
           files: Miya-${{ github.run_number }}.apk
-          generate_release_notes: true 
+          generate_release_notes: true

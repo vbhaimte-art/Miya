@@ -8,6 +8,7 @@ APP_JAVA=miya-app/app/src/main/java/com/miya/app
 # NOTE: ab "rm -rf miya-app" nahi hota — pehle ye MiyaService.java ko bhi mita deta tha.
 mkdir -p "$APP_JAVA"
 mkdir -p miya-app/app/src/main/res/values
+mkdir -p miya-app/app/src/main/res/xml
 mkdir -p miya-app/app/src/main/assets
 
 # MiyaService.java is script se generate nahi hoti — ye pehle se yahin honi chahiye
@@ -117,6 +118,14 @@ cat > miya-app/app/src/main/AndroidManifest.xml <<'EOF'
     <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
 
+    <!-- Agent ko installed apps ke naam dhoondne dene ke liye (OPEN_APP) -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent>
+    </queries>
+
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-feature android:name="android.hardware.microphone" android:required="false"/>
 
@@ -141,6 +150,17 @@ cat > miya-app/app/src/main/AndroidManifest.xml <<'EOF'
                  android:foregroundServiceType="microphone|specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                       android:value="voice_assistant_overlay"/>
+        </service>
+
+        <service android:name=".MiyaAccessibilityService"
+                 android:exported="false"
+                 android:label="Miya Agent"
+                 android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService"/>
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice"
+                       android:resource="@xml/accessibility_config"/>
         </service>
 
         <receiver android:name=".BootReceiver" android:exported="false">
@@ -458,6 +478,180 @@ public class BootReceiver extends BroadcastReceiver {
             context.startForegroundService(new Intent(context, MiyaService.class));
         } catch (RuntimeException ignored) { }
     }
+}
+JAVA_EOF
+
+# ---------------- Accessibility config + strings (phone agent) ----------------
+cat > miya-app/app/src/main/res/xml/accessibility_config.xml <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/miya_accessibility_desc"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagIncludeNotImportantViews"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="200"/>
+EOF
+
+cat > miya-app/app/src/main/res/values/strings.xml <<'EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="miya_accessibility_desc">Miya Agent aapke bole hue kaam ke liye screen padhta hai aur tap, type aur scroll karta hai. Password wale fields aur lambe numbers (OTP, card) AI ko nahi bheje jaate. Ye sirf Setup mode (password) me chalta hai.</string>
+</resources>
+EOF
+
+# ---------------- MiyaAccessibilityService.java ----------------
+cat > "$APP_JAVA/MiyaAccessibilityService.java" <<'JAVA_EOF'
+package com.miya.app;
+
+import android.accessibilityservice.AccessibilityService;
+import android.content.Intent;
+import android.os.Bundle;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
+
+/**
+ * Miya phone agent ki "aankhein aur haath": screen padhna, tap, type, scroll.
+ * Passwords aur lambe numbers (OTP / card jaise) kabhi bahar nahi jaate.
+ */
+public class MiyaAccessibilityService extends AccessibilityService {
+
+    static volatile MiyaAccessibilityService instance;
+
+    private static final int MAX_NODES = 70;
+    private static final Pattern LONG_NUMBER = Pattern.compile("(?:\\d[ -]?){6,}");
+
+    // Pichhli dump ke numbered nodes (CLICK/TYPE inhi ke index se hote hain)
+    private final List<AccessibilityNodeInfo> indexed = new ArrayList<>();
+
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        instance = this;
+    }
+
+    @Override
+    public boolean onUnbind(Intent intent) {
+        instance = null;
+        return super.onUnbind(intent);
+    }
+
+    @Override
+    public void onDestroy() {
+        instance = null;
+        super.onDestroy();
+    }
+
+    @Override public void onAccessibilityEvent(AccessibilityEvent event) { }
+    @Override public void onInterrupt() { }
+
+    // ---------- Screen padhna ----------
+    synchronized String dumpScreen() {
+        indexed.clear();
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null) return "(screen padh nahi paya)";
+        StringBuilder sb = new StringBuilder();
+        collect(root, sb);
+        if (indexed.isEmpty()) sb.append("(koi padhne layak cheez nahi mili)\n");
+        return sb.toString();
+    }
+
+    String currentPackage() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null || root.getPackageName() == null) return "";
+        return root.getPackageName().toString();
+    }
+
+    private void collect(AccessibilityNodeInfo n, StringBuilder sb) {
+        if (n == null || indexed.size() >= MAX_NODES) return;
+        if (n.isVisibleToUser()) {
+            String label = labelOf(n);
+            boolean edit = n.isEditable();
+            boolean click = n.isClickable();
+            if (!label.isEmpty() || edit || click) {
+                int idx = indexed.size();
+                indexed.add(n);
+                sb.append('[').append(idx).append("] ")
+                  .append(edit ? "input" : click ? "button" : n.isScrollable() ? "list" : "text");
+                if (!label.isEmpty()) sb.append(" \"").append(label).append('"');
+                sb.append('\n');
+            }
+        }
+        for (int i = 0; i < n.getChildCount(); i++) collect(n.getChild(i), sb);
+    }
+
+    private String labelOf(AccessibilityNodeInfo n) {
+        if (n.isPassword()) return "(password field - hidden)";
+        CharSequence t = n.getText();
+        if (t == null || t.length() == 0) t = n.getContentDescription();
+        if (t == null || t.length() == 0) t = n.getHintText();
+        if (t == null) return "";
+        String s = t.toString().replace('\n', ' ').trim();
+        s = LONG_NUMBER.matcher(s).replaceAll("[hidden-number]");
+        if (s.length() > 80) s = s.substring(0, 80) + "...";
+        return s.replace('"', '\'');
+    }
+
+    // ---------- Haath ----------
+    private synchronized AccessibilityNodeInfo nodeAt(int i) {
+        return (i >= 0 && i < indexed.size()) ? indexed.get(i) : null;
+    }
+
+    /** Node ka label (risky-button check ke liye). null = galat index. */
+    synchronized String labelAt(int i) {
+        AccessibilityNodeInfo n = nodeAt(i);
+        return n == null ? null : labelOf(n);
+    }
+
+    synchronized boolean click(int i) {
+        AccessibilityNodeInfo cur = nodeAt(i);
+        for (int depth = 0; depth < 6 && cur != null; depth++) {
+            if (cur.isClickable() && cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+            cur = cur.getParent();
+        }
+        return false;
+    }
+
+    /** index = -1 ho to jis field par cursor hai wahi. Poora text replace hota hai. */
+    synchronized String type(int i, String text) {
+        AccessibilityNodeInfo n = nodeAt(i);
+        if (n == null && i < 0) {
+            AccessibilityNodeInfo root = getRootInActiveWindow();
+            if (root != null) n = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        }
+        if (n == null) return "no_field";
+        if (n.isPassword()) return "password_field_blocked";
+        if (!n.isEditable()) return "not_an_input";
+        n.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        Bundle args = new Bundle();
+        args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+        return n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) ? "typed" : "type_failed";
+    }
+
+    synchronized boolean scroll(boolean forward) {
+        AccessibilityNodeInfo s = findScrollable(getRootInActiveWindow());
+        if (s == null) return false;
+        return s.performAction(forward
+                ? AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                : AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+    }
+
+    private AccessibilityNodeInfo findScrollable(AccessibilityNodeInfo n) {
+        if (n == null) return null;
+        if (n.isScrollable() && n.isVisibleToUser()) return n;
+        for (int i = 0; i < n.getChildCount(); i++) {
+            AccessibilityNodeInfo f = findScrollable(n.getChild(i));
+            if (f != null) return f;
+        }
+        return null;
+    }
+
+    boolean back() { return performGlobalAction(GLOBAL_ACTION_BACK); }
+    boolean home() { return performGlobalAction(GLOBAL_ACTION_HOME); }
 }
 JAVA_EOF
 

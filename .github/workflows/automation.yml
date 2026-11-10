@@ -1,0 +1,87 @@
+name: Miya Channel Automation
+
+on:
+  schedule:
+    - cron: '30 3 * * *'    # roz subah 9:00 IST: nayi video banao aur Telegram par bhejo
+    - cron: '30 13 * * *'   # roz sham 7:00 IST: comments par replies
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Kya chalana hai'
+        type: choice
+        options: [selftest, make, replies, both]
+        default: selftest
+
+permissions:
+  contents: write
+
+# state.json ek hi run se update ho, isliye runs line me lagti hain
+concurrency:
+  group: miya-automation
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-noto-core
+          pip install --quiet requests edge-tts
+
+      - name: Decide mode
+        id: mode
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          MODE="$INPUT_MODE"
+          if [ -z "$MODE" ]; then
+            if [ "$SCHEDULE" = "30 13 * * *" ]; then MODE=replies; else MODE=make; fi
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "Mode: $MODE"
+
+      - name: Run pipeline
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          YT_API_KEY: ${{ secrets.YT_API_KEY }}
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
+        run: python automation/pipeline.py "$MODE"
+
+      # Telegram na chale to bhi video yahan se download ho sakti hai (3 din tak)
+      - name: Save video as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miya-video-${{ github.run_number }}
+          path: automation/output/*.mp4
+          retention-days: 3
+          if-no-files-found: ignore
+
+      # kaun se topics ho chuke aur kaun se comments dekhe gaye, ye yaad rakhne ke liye
+      - name: Save state
+        if: always() && steps.mode.outputs.mode != 'selftest'
+        run: |
+          git config user.name "miya-bot"
+          git config user.email "miya-bot@users.noreply.github.com"
+          git add automation/state.json 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "automation: state update"
+            git pull --rebase --quiet || true
+            git push
+          fi

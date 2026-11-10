@@ -1,0 +1,12 @@
+{
+  "niche": "Hindi amazing facts: space, science, human body, nature and history (well documented facts only)",
+  "voice": "hi-IN-SwaraNeural",
+  "rate": "+0%",
+  "target_seconds": 40,
+  "region": "IN",
+  "youtube_category_ids": ["28", "27", "24"],
+  "llm_model": "",
+  "reply_mode": "post",
+  "max_replies_per_run": 8,
+  "caption_font": "Noto Sans Devanagari"
+}

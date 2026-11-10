@@ -230,6 +230,8 @@ public class MainActivity extends FragmentActivity {
     private static final long SESSION_TIMEOUT_MS = 10 * 60 * 1000L;
     private static final Pattern PKG_PATTERN = Pattern.compile("^[a-zA-Z0-9_.]{1,200}$");
     private static final Pattern TOKEN_PATTERN = Pattern.compile("^[0-9a-fA-F]{32}$");
+    private static final Pattern GH_TOKEN_PATTERN =
+            Pattern.compile("^(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,})$");
     private static final int AUTHENTICATORS =
             BiometricManager.Authenticators.BIOMETRIC_WEAK
                     | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
@@ -250,6 +252,8 @@ public class MainActivity extends FragmentActivity {
             // Ye do commands sirf app khuli hone par (foreground me) ho sakte hain
             String low = text.toLowerCase(Locale.ROOT).trim();
             if (low.startsWith("termux token")) { saveTermuxTokenFromClipboard(); return; }
+            String norm = low.replace(" ", "");
+            if (norm.startsWith("githubtoken") || norm.startsWith("gethubtoken")) { saveGithubTokenFromClipboard(); return; }
             if (low.startsWith("agent setup")) { openAccessibilitySettings(); return; }
 
             if (webView == null) return;
@@ -617,6 +621,26 @@ public class MainActivity extends FragmentActivity {
         }
     }
 
+    /** GitHub token copy karke ye bolo: "Miya github token save". Isse "Miya video banao" workflow chala sakta hai. */
+    private void saveGithubTokenFromClipboard() {
+        if (!sessionActive()) { toast("⚠️ Pehle unlock karo"); return; }
+        try {
+            ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData d = cm == null ? null : cm.getPrimaryClip();
+            String tok = (d != null && d.getItemCount() > 0)
+                    ? String.valueOf(d.getItemAt(0).coerceToText(this)).trim() : "";
+            if (!GH_TOKEN_PATTERN.matcher(tok).matches()) {
+                toast("Clipboard me GitHub token nahi hai (github_pat_... se shuru hota hai)");
+                return;
+            }
+            MiyaAgent.setGithubToken(this, tok);
+            toast("✅ GitHub token save ho gaya");
+        } catch (Exception e) {
+            Log.w(TAG, "github token save failed", e);
+            toast("Token save nahi hua");
+        }
+    }
+
     // ------------------------------------------------------------------
     // JAVASCRIPT BRIDGE (sensitive methods session-gated)
     // JS side: Android.authenticate() ; window.onMiyaAuth = ok => {...}
@@ -759,6 +783,12 @@ final class MiyaAgent {
             "https://young-sky-01cdmy-assistant-api.vbhaimte.workers.dev";
     private static final String PREFS = "miya_agent_prefs";
     private static final String KEY_TERMUX_TOKEN = "termux_token";
+    private static final String KEY_GH_TOKEN = "github_token";
+    private static final String KEY_GH_LAST = "github_last_trigger";
+    private static final String GH_REPO = "vbhaimte-art/Miya";
+    private static final String GH_WORKFLOW = "automation.yml";
+    private static final String GH_BRANCH = "main";
+    private static final long GH_COOLDOWN_MS = 10 * 60 * 1000L; // 10 minute me ek hi baar
     private static final String TERMUX_HOST = "127.0.0.1";
     private static final int TERMUX_PORT = 5555;
     private static final String DONE_MARK = "__MIYA_DONE__";
@@ -801,6 +831,7 @@ final class MiyaAgent {
     private static final Handler ui = new Handler(Looper.getMainLooper());
     private static final ExecutorService agentExec = Executors.newSingleThreadExecutor();
     private static final ExecutorService termuxExec = Executors.newSingleThreadExecutor();
+    private static final ExecutorService ghExec = Executors.newSingleThreadExecutor();
 
     private static volatile Context appCtx;
     private static volatile TextToSpeech tts;
@@ -873,8 +904,10 @@ final class MiyaAgent {
         String low = command.toLowerCase(Locale.ROOT).trim();
         if (low.isEmpty()) return false;
 
-        // Ye do MainActivity sambhalti hai (clipboard / settings ke liye foreground chahiye)
-        if (low.startsWith("termux token") || low.startsWith("agent setup")) return false;
+        // Ye teen MainActivity sambhalti hai (clipboard / settings ke liye foreground chahiye)
+        String norm = low.replace(" ", "");
+        if (low.startsWith("termux token") || low.startsWith("agent setup")
+                || norm.startsWith("githubtoken") || norm.startsWith("gethubtoken")) return false;
 
         if (low.equals("agent stop") || low.equals("stop agent")
                 || low.startsWith("agent band") || low.startsWith("agent ruko")) {
@@ -887,6 +920,16 @@ final class MiyaAgent {
         }
         if (low.startsWith("termux ")) {
             runTermux(command.trim().substring("termux ".length()).trim());
+            return true;
+        }
+        // "video banao" -> GitHub par channel automation ka video-workflow chalao
+        if (low.contains("video") && any(low, "bana", "bano", "bnao", "naya", "nayi", "new", "create", "generate", "make")) {
+            triggerWorkflow("make");
+            return true;
+        }
+        // "comments ka reply karo" -> comment-reply workflow
+        if (low.contains("comment") && any(low, "reply", "jawab", "javab", "jawaab")) {
+            triggerWorkflow("replies");
             return true;
         }
         return false;
@@ -1238,6 +1281,69 @@ final class MiyaAgent {
         tSock = null;
         tOut = null;
         tIn = null;
+    }
+
+    // ------------------------------------------------------------------
+    // GITHUB: channel automation workflow chalana (video / comment replies)
+    // ------------------------------------------------------------------
+    static void setGithubToken(Context c, String token) {
+        init(c);
+        prefs().edit().putString(KEY_GH_TOKEN, token).apply();
+    }
+
+    private static void triggerWorkflow(final String mode) {
+        if (needSession()) return;
+        final String token = prefs().getString(KEY_GH_TOKEN, null);
+        if (token == null) {
+            speak("Pehle GitHub token save karo. Token copy karke app kholo aur bolo: github token save");
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        if (now - prefs().getLong(KEY_GH_LAST, 0) < GH_COOLDOWN_MS) {
+            speak("Abhi thodi der pehle hi shuru kiya tha, kuch minute baad bolo");
+            return;
+        }
+        ghExec.execute(() -> {
+            HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL("https://api.github.com/repos/" + GH_REPO
+                        + "/actions/workflows/" + GH_WORKFLOW + "/dispatches").openConnection();
+                c.setRequestMethod("POST");
+                c.setConnectTimeout(15_000);
+                c.setReadTimeout(30_000);
+                c.setRequestProperty("Authorization", "Bearer " + token);
+                c.setRequestProperty("Accept", "application/vnd.github+json");
+                c.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
+                c.setRequestProperty("User-Agent", "MiyaApp");
+                c.setRequestProperty("Content-Type", "application/json");
+                c.setDoOutput(true);
+                JSONObject body = new JSONObject()
+                        .put("ref", GH_BRANCH)
+                        .put("inputs", new JSONObject().put("mode", mode));
+                try (OutputStream os = c.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                }
+                int code = c.getResponseCode();
+                if (code == 204) {
+                    prefs().edit().putLong(KEY_GH_LAST, now).apply();
+                    speak("make".equals(mode)
+                            ? "Theek hai, video banna shuru ho gaya. Kuch minute me Telegram par aayegi"
+                            : "Comments ke replies shuru kar diye");
+                } else if (code == 401 || code == 403) {
+                    speak("GitHub ne token nahi mana. Token ki Actions permission aur expiry check karo");
+                } else if (code == 404) {
+                    speak("Workflow nahi mila. GitHub me automation file hai ya nahi dekho");
+                } else if (code == 422) {
+                    speak("GitHub ko request samajh nahi aayi. Workflow ka mode input check karo");
+                } else {
+                    speak("GitHub error " + code);
+                }
+            } catch (Exception e) {
+                speak("GitHub se baat nahi ho payi, internet check karo");
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        });
     }
 }
 JAVA_EOF
